@@ -1,0 +1,45 @@
+#
+# Compiled source and generated files
+#
+*.lo
+*.o
+*.la
+*.a
+*.m4
+.libs
+.deps
+autom4te.cache/
+configure
+doc/html/
+doc/doxygen.cfg
+*Makefile.in
+*Makefile
+aclocal.m4
+autom4te.cache
+depcomp
+compile
+config.guess
+config.h.in
+config.sub
+config.status
+config.h
+install-sh
+ltmain.sh
+missing
+test-driver
+stamp-h1
+libtool
+
+#
+# Logs
+#
+*.log
+
+#
+# Any other cruft
+#
+*.project
+*.cproject
+*.sublime-project
+*.sublime-workspace
+*~

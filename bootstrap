@@ -1,0 +1,8 @@
+#!/bin/sh
+
+cd `dirname "$0"`
+libtoolize --copy --force
+aclocal -I m4 --force
+autoheader --force
+automake -a -c --force-missing
+autoconf --force
