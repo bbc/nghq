@@ -74,6 +74,12 @@ typedef enum {
   NGHQ_PUSH_ALREADY_IN_CACHE = -56,
   NGHQ_TRAILERS_NOT_PROMISED = -57,
   NGHQ_REQUEST_CLOSED = -58,
+  NGHQ_SETTINGS_NOT_RECOGNISED = -59,
+  /* HTTP/QUIC errors */
+  NGHQ_HTTP_CONNECT_ERROR = -70,
+  NGHQ_HTTP_WRONG_STREAM = -71,
+  NGHQ_HTTP_DUPLICATE_PUSH = -72,
+  NGHQ_HTTP_MALFORMED_FRAME = -73,
   /* QUIC Transport / ngtcp2 errors */
   NGHQ_TRANSPORT_ERROR = -100,
   NGHQ_TRANSPORT_CLOSED = -101,
@@ -95,6 +101,32 @@ typedef struct {
   int32_t header_table_size;
   int32_t max_header_list_size;
 } nghq_settings;
+
+typedef enum {
+  NGHQ_MODE_UNICAST,
+  NGHQ_MODE_MULTICAST,
+  NGHQ_MODE_MAX
+} nghq_mode;
+
+typedef struct {
+  nghq_mode mode;
+  uint32_t max_open_requests;
+  uint32_t max_open_server_pushes;
+
+  uint16_t idle_timeout;
+  uint16_t max_packet_size;
+  uint8_t ack_delay_exponent;
+} nghq_transport_settings;
+
+#define NGHQ_SETTINGS_HEADER_TABLE_SIZE 0x0001
+#define NGHQ_SETTINGS_MAX_HEADER_LIST_SIZE 0x0006
+/*
+ * TODO: Sanitise these defaults - header table size MUST be 0 in draft-09, and
+ * SETTINGS_MAX_HEADER_LIST_SIZE says to assume 16,384 octets until otherwise
+ * specified by the server.
+ */
+#define NGHQ_SETTINGS_DEFAULT_HEADER_TABLE_SIZE 0
+#define NGHQ_SETTINGS_DEFAULT_MAX_HEADER_LIST_SIZE 16384
 
 typedef struct {
   const uint8_t*        name;
@@ -123,12 +155,14 @@ typedef struct {
  *
  * @param callbacks Session and Request callbacks structure
  * @param settings The HTTP/QUIC settings to be negotiated
+ * @param transport The underlying QUIC connection settings
  * @param session_user_data User-supplied data pointer for callbacks
  *
  * @return Initialised NGHQ Session object on success, or NULL if it failed.
  */
 extern nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
                                                const nghq_settings *settings,
+                                               const nghq_transport_settings *transport,
                                                void *session_user_data);
 
 /**
@@ -147,12 +181,14 @@ extern nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
  *
  * @param callbacks Session and Request callbacks structure
  * @param settings The HTTP/QUIC settings to be negotiated
+ * @param transport The underlying QUIC connection settings
  * @param session_user_data User-supplied data pointer for callbacks
  *
  * @return Initialised NGHQ Session object on success, or NULL if it failed.
  */
 extern nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
                                                const nghq_settings *settings,
+                                               const nghq_transport_settings *transport,
                                                void *session_user_data);
 
 /**
@@ -515,7 +551,7 @@ extern int nghq_feed_headers (nghq_session *session, nghq_header **hdrs,
  * @brief Send a block of request or response data
  *
  * Feeds @p len bytes of data @p buf into a request or response represented by
- * request_user_data, beginning at offset @p start in the data payload body.
+ * request_user_data.
  *
  * Internally, this will buffer up the data, create the packets and then
  * nghq_session_send() will send them.
@@ -527,9 +563,8 @@ extern int nghq_feed_headers (nghq_session *session, nghq_header **hdrs,
  *    control.
  * @return NGHQ_REQUEST_CLOSED if the request is closed
  */
-extern ssize_t nghq_feed_payload_data(nghq_session *session, size_t start,
-                                      uint8_t *buf, size_t len,
-                                      void *request_user_data);
+extern ssize_t nghq_feed_payload_data(nghq_session *session, uint8_t *buf,
+                                      size_t len, void *request_user_data);
 
 /**
  * @brief End the request

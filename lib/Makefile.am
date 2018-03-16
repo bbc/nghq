@@ -11,9 +11,17 @@ DISTCLEANFILES = $(pkgconfig_DATA)
 lib_LTLIBRARIES = libnghq.la
 
 OBJECTS = \
+	frame_creator.c \
+	frame_parser.c \
+	header_compression.c \
     nghq.c
 
-HDRS =
+HDRS = \
+	frame_creator.h \
+	frame_parser.h \
+	frame_types.h \
+	header_compression.h \
+	util.h
 
 libnghq_la_CFLAGS = -I$(top_srcdir)/include
 
