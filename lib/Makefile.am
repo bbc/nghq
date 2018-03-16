@@ -14,6 +14,7 @@ OBJECTS = \
 	frame_creator.c \
 	frame_parser.c \
 	header_compression.c \
+	map.c \
     nghq.c
 
 HDRS = \
@@ -21,6 +22,8 @@ HDRS = \
 	frame_parser.h \
 	frame_types.h \
 	header_compression.h \
+	map.h \
+	nghq_internal.h \
 	util.h
 
 libnghq_la_CFLAGS = -I$(top_srcdir)/include
