@@ -327,7 +327,7 @@ typedef ssize_t (*nghq_decrypt_callback) (nghq_session *session,
  *    return NGHQ_CRYPTO_ERROR.
  */
 typedef ssize_t (*nghq_encrypt_callback) (nghq_session *session,
-                                          uint8_t **clear, size_t clear_len,
+                                          uint8_t *clear, size_t clear_len,
                                           const uint8_t *nonce, size_t noncelen,
                                           const uint8_t *ad, size_t adlen,
                                           uint8_t *encrypted,
