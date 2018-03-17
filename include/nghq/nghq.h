@@ -239,7 +239,8 @@ extern int nghq_session_free (nghq_session *session);
  *
  * @return NGHQ_OK if the call succeeds and work was done.
  * @return NGHQ_ERROR if nghq_recv_callback fails
- * @return NGHQ_NO_MORE DATA If there was no data to be read
+ * @return NGHQ_CRYPTO_ERROR if there was a crypto error when reading packets
+ * @return NGHQ_NO_MORE_DATA If there was no data to be read
  * @return NGHQ_OUT_OF_MEMORY If an internal part of the library failed to
  *    allocate memory
  * @return NGHQ_SESSION_CLOSED If the session has been closed, the application
