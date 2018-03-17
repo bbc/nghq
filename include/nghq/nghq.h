@@ -135,6 +135,9 @@ typedef struct {
   const size_t          value_len;
 } nghq_header;
 
+#define NGHQ_HEADERS_FLAGS_END_REQUEST 0x1
+#define NGHQ_HEADERS_FLAGS_TRAILERS 0x2
+
 /*
  * NGHQ Session Functions
  */
