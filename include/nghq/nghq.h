@@ -524,6 +524,44 @@ extern int nghq_submit_push_promise (nghq_session *session,
                                      void *promised_request_user_data);
 
 /**
+ * @brief Change request user data
+ *
+ * Allows the application to change the pointer used as request_user_data in
+ * callbacks related to requests or push promises. This may be done at any time
+ * while a request is open.
+ *
+ * @param session A running NGHQ session
+ * @param current_user_data The existing user data
+ * @param new_user_data The new user data pointer to replace @p current_user_data
+ *
+ * @return NGHQ_OK on success
+ * @return NGHQ_BAD_USER_DATA if @p current_user_data doesn't match any
+ *    request_user_data stored within the library.
+ */
+extern int nghq_set_request_user_data(nghq_session *session,
+                                      void * current_user_data,
+                                      void * new_user_data);
+
+/**
+ * @brief Change session user data
+ *
+ * Allows the application to change the pointer used as session_user_data in
+ * callbacks related to the session. This may be done at any time while a
+ * session is open.
+ *
+ * @param session A running NGHQ session
+ * @param current_user_data The existing user data
+ * @param new_user_data The new user data pointer to replace @p current_user_data
+ *
+ * @return NGHQ_OK on success
+ * @return NGHQ_BAD_USER_DATA if @p current_user_data doesn't match the
+ *    session_user_data stored within the library.
+ */
+extern int nghq_set_session_user_data(nghq_session *session,
+                                      void * current_user_data,
+                                      void * new_user_data);
+
+/**
  * @brief Send headers for a request/response
  *
  * Used to add a number of HTTP headers to either the request or response of a
