@@ -87,8 +87,7 @@ size_t _calculate_frame_size (size_t* payload_len) {
   int done = 0;
   size_t rv = 0;
 
-  uint8_t len[8];
-  size_t header_varlen_int_length = _make_varlen_int(&len,
+  size_t header_varlen_int_length = _make_varlen_int(NULL,
                                                      (uint64_t) *payload_len);
 
   return rv;
@@ -165,7 +164,7 @@ ssize_t create_data_frame(uint8_t* block, size_t block_len, uint8_t** frame,
  */
 ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
                              nghq_header** hdrs, size_t num_hdrs,
-                             uint8_t** frame, size_t* frame_len,) {
+                             uint8_t** frame, size_t* frame_len) {
   size_t frame_length, header_length, block_to_write;
   int hdrs_compressed;
   uint8_t* hdr_block;
@@ -231,13 +230,13 @@ int create_priority_frame(uint8_t flags, uint64_t request_id,
   }
 
   header_length = _create_frame_header (payload_length,
-                                        NGHQ_FRAME_TYPE_PRIORITY, flags, frame);
+                                        NGHQ_FRAME_TYPE_PRIORITY, flags, *frame);
 
   assert ((header_length + payload_length) > *frame_len);
 
   off = header_length;
-  off += _make_varlen_int((*frame)[off], request_id);
-  off += _make_varlen_int((*frame)[off], dependency_id);
+  off += _make_varlen_int((*frame) + off, request_id);
+  off += _make_varlen_int((*frame) + off, dependency_id);
   (*frame)[off] = weight;
 
   return NGHQ_OK;
@@ -269,7 +268,7 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
   header_length = _create_frame_header (push_id_length,
                                         NGHQ_FRAME_TYPE_CANCEL_PUSH, 0, *frame);
 
-  _make_varlen_int((*frame)[header_length], push_id);
+  _make_varlen_int((*frame) + header_length, push_id);
 
   return NGHQ_OK;
 }
@@ -366,7 +365,7 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
   header_length = _create_frame_header (last_stream_id_length,
                                         NGHQ_FRAME_TYPE_GOAWAY, 0, *frame);
 
-  _make_varlen_int((*frame)[header_length], last_stream_id);
+  _make_varlen_int((*frame) + header_length, last_stream_id);
 
   return NGHQ_OK;
 }
@@ -397,7 +396,7 @@ int create_max_push_id_frame(uint64_t max_push_id, uint8_t** frame,
   header_length = _create_frame_header (max_push_id_length,
                                         NGHQ_FRAME_TYPE_MAX_PUSH_ID, 0, *frame);
 
-  _make_varlen_int((*frame)[header_length], max_push_id);
+  _make_varlen_int((*frame) + header_length, max_push_id);
 
   return NGHQ_OK;
 }
