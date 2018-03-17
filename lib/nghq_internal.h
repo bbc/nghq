@@ -26,7 +26,7 @@
 #ifndef LIB_NGHQ_INTERNAL_H_
 #define LIB_NGHQ_INTERNAL_H_
 
-#include <nghq/nghq.h>
+#include "nghq/nghq.h"
 
 #include <ngtcp2/ngtcp2.h>
 
@@ -36,6 +36,7 @@
 typedef struct nghq_io_buf {
   uint8_t buf;
   size_t  buf_len;
+  off_t   send_offset;
   int     complete;
 
   nghq_io_buf *next_buf;
@@ -58,6 +59,7 @@ typedef struct {
     STATE_RESPONSE_BODY,
     STATE_DONE
   } stream_state;
+  int           started;
 } nghq_stream;
 
 struct nghq_session {
@@ -92,7 +94,20 @@ struct nghq_session {
   nghq_map_ctx *  promises;
 
   nghq_hdr_compression_ctx *hdr_ctx;
+
+  void *          session_user_data;
+
+  nghq_io_buf*  send_buf;
+  nghq_io_buf*  recv_buf;
 };
+
+int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
+                           uint64_t* data, size_t datalen);
+
+int nghq_stream_close (nghq_session* session, nghq_stream *stream,
+                       uint16_t app_error_code);
+
+int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id);
 
 #define NGHQ_MULTICAST_MAX_UNI_STREAM_ID 0x3FFFFFFFFFFFFFFF
 #define NGHQ_MULTICAST_MAX_PUSH_ID 0x3FFFFFFFFFFFFFFF
