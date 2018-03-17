@@ -37,6 +37,10 @@
 #include "nghq/nghq.h"
 #include "frame_types.h"
 
+/* Forward declarations: */
+struct nghq_hdr_compression_ctx;
+typedef struct nghq_hdr_compression_ctx nghq_hdr_compression_ctx;
+
 /* TODO: Add a get/set method so the application can inform us of MTU sizes */
 #define MAX_FRAME_LENGTH 1350
 
