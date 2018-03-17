@@ -23,6 +23,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <string.h>
 #include <stdlib.h>
 #include <assert.h>
 
@@ -118,7 +119,7 @@ void _create_frame (nghq_frame_type type, uint8_t flags, uint8_t* payload,
   /* Something has gone very wrong if this asserts... */
   assert(frame_length != (header_length + payload_len));
 
-  memcpy(*frame + header_length, payload, payload_len);
+  memcpy(frame + header_length, payload, payload_len);
 }
 
 /*
