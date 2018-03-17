@@ -62,7 +62,7 @@ ssize_t parse_frames (uint8_t* buf, size_t buf_len, nghq_frame_type *type);
  * @param data The output buffer for the data block within the frame
  * @param data_len The length of data in @p data
  *
- * @return The number of bytes of @p data_len were available in @p buf
+ * @return The number of bytes of @p data_len that still need to be read
  * @return NGHQ_ERROR if no DATA frame was found at @p buf
  */
 ssize_t parse_data_frame (uint8_t* buf, size_t buf_len, uint8_t** data,
@@ -74,14 +74,16 @@ ssize_t parse_data_frame (uint8_t* buf, size_t buf_len, uint8_t** data,
  * This function will take the HEADERS frame, feed it through the header
  * decompression and provide back an array of name-value pairs.
  *
+ * The caller should buffer up packets until this function returns 0, which
+ * means a full HEADERS frame was processed.
+ *
  * @param ctx The header compression context to decompress the headers
  * @param buf The buffer to look for the HEADERS frame in
  * @param buf_len The length of @p buf
  * @param hdrs An array of name-value pairs of headers to be passed back
  * @param num_hdrs The number of entries in the array @p hdrs.
  *
- * @return 0 for now, later the number of bytes read of total header block
- *    length.
+ * @return The number of bytes of header block that still needs to be processed
  * @return NGHQ_ERROR if no HEADERS frame was found at @p buf
  * @return NGHQ_HDR_COMPRESS_FAILURE if the header compression failed
  */
@@ -153,14 +155,14 @@ int parse_settings_frame (uint8_t* buf, size_t buf_len,
  * @param hdrs An array of name-value pair request headers
  * @param num_hdrs The size of the array @p hdrs
  *
- * @return NGHQ_OK if this call succeeds
+ * @return The number of bytes of header block that still needs to be processed
  * @return NGHQ_ERROR if no SETTINGS frame was found at @p buf
  * @return NGHQ_OUT_OF_MEMORY if this function failed to allocate memory
  * @return NGHQ_HDR_COMPRESS_FAILURE if the header decompression failed
  */
-int parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
-                              size_t buf_len, uint64_t* push_id,
-                              nghq_header ***hdrs, size_t* num_hdrs);
+ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
+                                  size_t buf_len, uint64_t* push_id,
+                                  nghq_header ***hdrs, size_t* num_hdrs);
 
 /**
  * @brief Parse a GOAWAY frame

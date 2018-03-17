@@ -147,13 +147,18 @@ ssize_t parse_frames (uint8_t* buf, size_t buf_len, nghq_frame_type *type) {
 ssize_t parse_data_frame (uint8_t* buf, size_t buf_len, uint8_t** data,
                           size_t *data_len) {
   size_t varint_len = 0;
-  data_len = _get_varlen_int(buf, &varint_len);
+  *data_len = _get_varlen_int(buf, &varint_len);
 
   if (buf[varint_len] != NGHQ_FRAME_TYPE_DATA) {
     return NGHQ_ERROR;
   }
+
+  if (*data_len > buf_len - varint_len - 2) {
+    return *data_len + varint_len + 2;
+  }
+
   data = buf + varint_len + 2;
-  return NGHQ_OK;
+  return data_len - buf_len +varint_len + 2;
 }
 
 /*
@@ -165,14 +170,19 @@ ssize_t parse_data_frame (uint8_t* buf, size_t buf_len, uint8_t** data,
  * |                        Header Block (*)                       |  HEADERS
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-int parse_headers_frame (nghq_hdr_compression_ctx* ctx, uint8_t* buf,
-                         size_t buf_len, nghq_header*** hdrs, size_t* num_hdrs){
-  size_t header_len = 0, block_len;
+ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, uint8_t* buf,
+                             size_t buf_len, nghq_header*** hdrs,
+                             size_t* num_hdrs) {
+  size_t header_len = 0, expected_header_block_len;
   nghq_frame_type type;
-  block_len = _parse_frame_header(buf, &type, NULL, &header_len);
+  expected_header_block_len = _parse_frame_header(buf, &type, NULL, &header_len);
 
   if (type != NGHQ_FRAME_TYPE_HEADERS) {
     return NGHQ_ERROR;
+  }
+
+  if (expected_header_block_len > buf_len - header_len) {
+    return buf_len;
   }
 
   /*
@@ -180,7 +190,8 @@ int parse_headers_frame (nghq_hdr_compression_ctx* ctx, uint8_t* buf,
    * packets - maybe a follow-on continue_parse_headers function...?
    */
 
-  return nghq_inflate_hdr(ctx, buf + header_len, block_len, hdrs, num_hdrs);
+  return nghq_inflate_hdr(ctx, buf + header_len, expected_header_block_len,
+                          hdrs, num_hdrs);
 }
 
 /*
@@ -317,17 +328,23 @@ int parse_settings_frame (uint8_t* buf, size_t buf_len,
 int parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
                               size_t buf_len, uint64_t* push_id,
                               nghq_header ***hdrs, size_t* num_hdrs) {
-  size_t header_len = 0, block_len;
+  size_t header_len = 0, push_id_len = 0, expected_header_block_len;
   nghq_frame_type type;
-  block_len = _parse_frame_header(buf, &type, NULL, &header_len);
+  expected_header_block_len = _parse_frame_header(buf, &type, NULL, &header_len);
 
   if (type != NGHQ_FRAME_TYPE_HEADERS) {
     return NGHQ_ERROR;
   }
 
-  push_id = _get_varlen_int(buf+header_len, &header_len);
+  if (expected_header_block_len > buf_len - header_len) {
+    return buf_len;
+  }
 
-  return nghq_inflate_hdr(ctx, buf + header_len, block_len, hdrs, num_hdrs);
+  push_id = _get_varlen_int(buf+header_len, &push_id_len);
+
+  return nghq_inflate_hdr(ctx, buf + header_len + push_id_len,
+                          expected_header_block_len - push_id_len, hdrs,
+                          num_hdrs);
 }
 
 /*
