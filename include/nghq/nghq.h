@@ -719,7 +719,7 @@ extern uint64_t nghq_get_max_promises (nghq_session *session);
  */
 extern int nghq_set_max_promises (nghq_session* session, uint64_t max_push);
 
-struct {
+struct nghq_callbacks {
   nghq_recv_callback              recv_callback;
   nghq_decrypt_callback           decrypt_callback;
   nghq_encrypt_callback           encrypt_callback;
@@ -730,7 +730,7 @@ struct {
   nghq_on_data_recv_callback      on_data_recv_callback;
   nghq_on_push_cancel_callback    on_push_cancel_callback;
   nghq_on_request_close_callback  on_request_close_callback;
-} nghq_callbacks;
+};
 
 #ifdef __cplusplus
 }
