@@ -63,7 +63,7 @@ int nghq_stream_id_map_add (nghq_map_ctx *ctx, uint64_t stream_id,
   }
 
   _stream_id_list_node *node =
-      (_stream_id_list_node) malloc(sizeof(_stream_id_list_node));
+      (_stream_id_list_node*) malloc(sizeof(_stream_id_list_node));
   if (node == NULL) {
     return NGHQ_ERROR;
   }
@@ -108,12 +108,12 @@ void* nghq_stream_id_map_find (nghq_map_ctx *ctx, uint64_t stream_id) {
   return rv;
 }
 
-int nghq_stream_id_map_search (nghq_map_ctx *ctx, void* user_data) {
+uint64_t nghq_stream_id_map_search (nghq_map_ctx *ctx, void* user_data) {
   _stream_id_list_node *find;
   uint64_t rv = NGHQ_STREAM_ID_MAP_NOT_FOUND;
 
   if (ctx == NULL) {
-    return NULL;
+    return NGHQ_STREAM_ID_MAP_NOT_FOUND;
   }
 
   find = ctx->begin;
@@ -142,7 +142,7 @@ nghq_stream *nghq_stream_id_map_stream_search(nghq_map_ctx* ctx,
 
   while (find != NULL) {
     if (find->stream_data->user_data == user_data) {
-      rv = find->stream_id;
+      rv = find->stream_data;
       break;
     }
     find = find->next;
@@ -155,7 +155,7 @@ int nghq_stream_id_map_remove (nghq_map_ctx *ctx, uint64_t stream_id) {
   _stream_id_list_node *find;
 
   if (ctx == NULL) {
-    return NULL;
+    return NGHQ_ERROR;
   }
 
   find = ctx->begin;

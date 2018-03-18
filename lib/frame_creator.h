@@ -95,7 +95,7 @@ ssize_t create_data_frame(uint8_t* block, size_t block_len, uint8_t** frame,
  * @return NGHQ_HDR_COMPRESS_FAILURE if the headers couldn't be compressed.
  */
 ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
-                             nghq_header** hdrs, size_t num_hdrs,
+                             const nghq_header** hdrs, size_t num_hdrs,
                              uint8_t** frame, size_t* frame_len);
 
 /**
@@ -177,7 +177,7 @@ int create_settings_frame(nghq_settings* settings, uint8_t** frame,
  * @return NGHQ_HDR_COMPRESS_FAILURE if the headers couldn't be compressed.
  */
 ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
-                                  uint64_t push_id, nghq_header** hdrs,
+                                  uint64_t push_id, const nghq_header** hdrs,
                                   size_t num_hdrs, uint8_t** frame,
                                   size_t* frame_len);
 

@@ -23,11 +23,14 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <string.h>
+
 #include "nghq/nghq.h"
 #include "nghq_internal.h"
 #include "frame_parser.h"
 #include "frame_creator.h"
 #include "header_compression.h"
+#include "map.h"
 
 nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
                                         const nghq_settings *settings,
@@ -125,7 +128,7 @@ void nghq_io_buf_push (nghq_io_buf* list, nghq_io_buf* push) {
   push->next_buf = NULL;
 }
 
-void nghq_io_buf_new (nghq_io_buf* list, uint8_t buf, size_t buflen) {
+void nghq_io_buf_new (nghq_io_buf* list, uint8_t *buf, size_t buflen) {
   nghq_io_buf* frame = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
   if (frame == NULL) {
     return;
@@ -178,7 +181,7 @@ int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
   }
 
   if (session->max_open_requests <=
-      nghq_session_id_map_num_requests(session->transfers)) {
+      nghq_stream_id_map_num_requests(session->transfers)) {
     return NGHQ_TOO_MANY_REQUESTS;
   }
 
@@ -204,9 +207,9 @@ int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
     free (new_stream);
     return rv;
   }
-  nghq_session_id_map_add(session->transfers, new_stream->stream_id, new_stream);
+  nghq_stream_id_map_add(session->transfers, new_stream->stream_id, new_stream);
   if (len > 0) {
-    return nghq_feed_payload_data(session, 0, req_body, len, request_user_data);
+    return (int)nghq_feed_payload_data(session, req_body, len, request_user_data);
   }
   return rv;
 }
@@ -219,7 +222,7 @@ int nghq_submit_push_promise (nghq_session *session,
   uint64_t init_request_stream_id;
 
   if (session == NULL) {
-    return NULL;
+    return NGHQ_ERROR;
   }
 
   if (session->role != NGHQ_ROLE_SERVER) {
@@ -273,7 +276,7 @@ int nghq_submit_push_promise (nghq_session *session,
   frame->buf = push_promise_buf;
   frame->buf_len = push_promise_len;
 
-  nghq_stream_id_map_add (session->promises, promised_stream);
+  nghq_stream_id_map_add (session->promises, promised_stream->push_id, promised_stream);
 
   nghq_stream *init_stream = nghq_stream_id_map_find(session->transfers,
                                                      init_request_stream_id);
@@ -314,7 +317,7 @@ int nghq_set_session_user_data(nghq_session *session, void * current_user_data,
   return NGHQ_OK;
 }
 
-int nghq_feed_headers (nghq_session *session, nghq_header **hdrs,
+int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
                        size_t num_hdrs, void *request_user_data) {
   uint8_t* buf;
   size_t buf_len;
@@ -347,7 +350,7 @@ int nghq_feed_headers (nghq_session *session, nghq_header **hdrs,
     ngtcp2_conn_open_uni_stream(session->ngtcp2_session, &stream_id,
                                 (void *) stream);
 
-    stream->stream_id(stream_id);
+    stream->stream_id = stream_id;
 
     rv = create_headers_frame (session->hdr_ctx, (int64_t) push_id, hdrs,
                                num_hdrs, &buf, &buf_len);
@@ -486,7 +489,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
                                  &outbuflen);
 
         if (outbuf != NULL) {
-          session->callbacks->on_data_recv_callback(session, 0, outbuf,
+          session->callbacks.on_data_recv_callback(session, 0, outbuf,
                                                     outbuflen,
                                                     stream->user_data);
         }
@@ -503,7 +506,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
           int i;
 
           if (stream->started == 0) {
-            session->callbacks->on_begin_headers_callback(session,
+            session->callbacks.on_begin_headers_callback(session,
                 NGHQ_HT_HEADERS, session->session_user_data, stream->user_data);
           }
 
@@ -512,7 +515,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
             if (stream->stream_state >= STATE_RESPONSE_BODY) {
               flags += NGHQ_HEADERS_FLAGS_TRAILERS;
             }
-            session->callbacks->on_headers_callback (session, flags, hdrs[i],
+            session->callbacks.on_headers_callback (session, flags, hdrs[i],
                                                      stream->user_data);
           }
         }
@@ -554,7 +557,8 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
         size_t num_hdrs;
         uint64_t push_id;
 
-        ssize_t rv = parse_push_promise_frame (stream->recv_buf->buf,
+        ssize_t rv = parse_push_promise_frame (session->hdr_ctx,
+					       stream->recv_buf->buf,
                                                stream->recv_buf->buf_len,
                                                &push_id, &hdrs, &num_hdrs);
 
@@ -567,7 +571,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
           if (hdrs != NULL) {
             int i;
 
-            session->callbacks->on_begin_headers_callback(session,
+            session->callbacks.on_begin_headers_callback(session,
                 NGHQ_HT_PUSH_PROMISE, session->session_user_data,
                 new_promised_stream->user_data);
 
@@ -576,7 +580,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
               if (stream->stream_state >= STATE_RESPONSE_BODY) {
                 flags += NGHQ_HEADERS_FLAGS_TRAILERS;
               }
-              session->callbacks->on_headers_callback (session, flags, hdrs[i],
+              session->callbacks.on_headers_callback (session, flags, hdrs[i],
                                                new_promised_stream->user_data);
             }
           }

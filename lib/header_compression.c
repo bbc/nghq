@@ -23,6 +23,8 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <string.h>
+
 #include "header_compression.h"
 #include <nghttp2/nghttp2.h>
 
@@ -158,7 +160,7 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
   return block_len;
 }
 
-int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, nghq_header **hdrs,
+int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
                       size_t num_hdrs, uint8_t** hdr_block, size_t* block_len) {
   nghttp2_nv nva[num_hdrs];
   int i;

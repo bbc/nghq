@@ -9,6 +9,22 @@ AC_CONFIG_HEADERS([config.h])
 
 LT_INIT()
 
+# Updating library version instructions
+# 1. If the library source has changed at all since the last release increment
+#    LT_REVISION.
+# 2. If any interfaces have been added removed or changed since the last release
+#    increment LT_CURRENT and set LT_REVISION to 0.
+# 3. If any interfaces have been added since the last release, increment
+#    LT_AGE.
+# 4. If any interfaces have been removed or changed since the last release,
+#    then set LT_AGE to 0.
+LT_CURRENT=0
+LT_REVISION=0
+LT_AGE=0
+AC_SUBST([LT_CURRENT])
+AC_SUBST([LT_REVISION])
+AC_SUBST([LT_AGE])
+
 AC_PROG_CC
 AC_PROG_INSTALL
 AC_PROG_LN_S
@@ -44,6 +60,7 @@ AC_SUBST([LIBEV_LIBS])
 
 AC_CONFIG_FILES([
   Makefile
+  lib/libnghq.pc
   lib/Makefile
   include/nghq/Makefile
   tests/Makefile

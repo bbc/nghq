@@ -71,7 +71,7 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
  * @return NGHQ_OUT_OF_MEMORY if function could not allocate buffer @p hdr_block
  * @return NGHQ_ERROR if @p ctx is not initialised
  */
-int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, nghq_header **hdrs,
+int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
                       size_t num_hdrs, uint8_t** hdr_block, size_t* block_len);
 
 void nghq_free_hdr_compression_ctx(nghq_hdr_compression_ctx *ctx);

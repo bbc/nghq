@@ -30,6 +30,7 @@
 extern "C" {
 #endif
 
+#include <sys/types.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -130,10 +131,10 @@ typedef struct {
 #define NGHQ_SETTINGS_DEFAULT_MAX_HEADER_LIST_SIZE 16384
 
 typedef struct {
-  const uint8_t*        name;
-  const size_t          name_len;
-  const uint8_t*        value;
-  const size_t          value_len;
+  uint8_t*        name;
+  size_t          name_len;
+  uint8_t*        value;
+  size_t          value_len;
 } nghq_header;
 
 #define NGHQ_HEADERS_FLAGS_END_REQUEST 0x1
@@ -587,7 +588,7 @@ extern int nghq_set_session_user_data(nghq_session *session,
  *    (see nghq_set_max_pushed())
  * @return NGHQ_REQUEST_CLOSED if the request is closed
  */
-extern int nghq_feed_headers (nghq_session *session, nghq_header **hdrs,
+extern int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
                               size_t num_hdrs, void *request_user_data);
 
 /**

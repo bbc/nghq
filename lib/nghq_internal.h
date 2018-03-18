@@ -30,16 +30,21 @@
 
 #include <ngtcp2/ngtcp2.h>
 
-#include "map.h"
+/* forward declarations for unreferenced pointer types */
+struct nghq_map_ctx;
+typedef struct nghq_map_ctx nghq_map_ctx;
+
+struct nghq_hdr_compression_ctx;
+typedef struct nghq_hdr_compression_ctx nghq_hdr_compression_ctx;
 
 /* A linked list of buffered frames that need sending/receiving. */
 typedef struct nghq_io_buf {
-  uint8_t buf;
+  uint8_t *buf;
   size_t  buf_len;
   off_t   send_offset;
   int     complete;
 
-  nghq_io_buf *next_buf;
+  struct nghq_io_buf *next_buf;
 } nghq_io_buf;
 
 typedef struct {

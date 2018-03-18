@@ -23,7 +23,9 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <string.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 
 #include "frame_parser.h"
 #include "header_compression.h"
@@ -96,9 +98,9 @@ uint64_t _get_varlen_int (uint8_t* buf, size_t* bytes) {
 uint64_t _parse_frame_header (uint8_t* buf, nghq_frame_type *type,
                               uint8_t *flags, size_t *header_len) {
   uint64_t len = _get_varlen_int(buf, header_len);
-  type = buf[*header_len];
+  *type = buf[*header_len];
   if (flags != NULL) {
-    flags = buf[++(*header_len)];
+    *flags = buf[++(*header_len)];
   }
   return len;
 }
@@ -157,8 +159,8 @@ ssize_t parse_data_frame (uint8_t* buf, size_t buf_len, uint8_t** data,
     return *data_len + varint_len + 2;
   }
 
-  data = buf + varint_len + 2;
-  return data_len - buf_len +varint_len + 2;
+  *data = buf + varint_len + 2;
+  return *data_len - buf_len + varint_len + 2;
 }
 
 /*
@@ -185,13 +187,8 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, uint8_t* buf,
     return buf_len;
   }
 
-  /*
-   * TODO: This needs to understand that a HEADERS frame may span multiple
-   * packets - maybe a follow-on continue_parse_headers function...?
-   */
-
   return nghq_inflate_hdr(ctx, buf + header_len, expected_header_block_len,
-                          hdrs, num_hdrs);
+                          1, hdrs, num_hdrs);
 }
 
 /*
@@ -218,9 +215,9 @@ int parse_priority_frame (uint8_t* buf, size_t buf_len, uint8_t* flags,
     return NGHQ_ERROR;
   }
 
-  request_id = _get_varlen_int(buf+off, &off);
-  dependency_id = _get_varlen_int(buf+off, &off);
-  weight = buf[off];
+  *request_id = _get_varlen_int(buf+off, &off);
+  *dependency_id = _get_varlen_int(buf+off, &off);
+  *weight = buf[off];
   return NGHQ_OK;
 }
 
@@ -242,7 +239,7 @@ int parse_cancel_push_frame (uint8_t* buf, size_t buf_len, uint64_t* push_id) {
     return NGHQ_ERROR;
   }
 
-  push_id = _get_varlen_int(buf+off, &off);
+  *push_id = _get_varlen_int(buf+off, &off);
   return NGHQ_OK;
 }
 
@@ -283,9 +280,9 @@ int parse_settings_frame (uint8_t* buf, size_t buf_len,
   }
 
   while (off < buf_len) {
-    int16_t id = get_int16_from_buf(buf[off]);
+    int16_t id = get_int16_from_buf(buf + off);
     off += 2;
-    uint64_t len = _get_varlen_int(buf+off, &off);
+    uint64_t len = _get_varlen_int(buf + off, &off);
 
     switch (id) {
       case NGHQ_SETTINGS_HEADER_TABLE_SIZE:
@@ -325,7 +322,7 @@ int parse_settings_frame (uint8_t* buf, size_t buf_len,
  * |                       Header Block (*)                      ...  Payload
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-int parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
+ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
                               size_t buf_len, uint64_t* push_id,
                               nghq_header ***hdrs, size_t* num_hdrs) {
   size_t header_len = 0, push_id_len = 0, expected_header_block_len;
@@ -340,10 +337,10 @@ int parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
     return buf_len;
   }
 
-  push_id = _get_varlen_int(buf+header_len, &push_id_len);
+  *push_id = _get_varlen_int(buf+header_len, &push_id_len);
 
   return nghq_inflate_hdr(ctx, buf + header_len + push_id_len,
-                          expected_header_block_len - push_id_len, hdrs,
+                          expected_header_block_len - push_id_len, 1, hdrs,
                           num_hdrs);
 }
 
@@ -365,7 +362,7 @@ int parse_goaway_frame (uint8_t* buf, size_t buf_len, uint64_t* last_stream_id){
     return NGHQ_ERROR;
   }
 
-  last_stream_id = _get_varlen_int(buf+off, &off);
+  *last_stream_id = _get_varlen_int(buf+off, &off);
   return NGHQ_OK;
 }
 
@@ -388,6 +385,6 @@ int parse_max_push_id_frame (uint8_t* buf, size_t buf_len,
     return NGHQ_ERROR;
   }
 
-  max_push_id = _get_varlen_int(buf+off, &off);
+  *max_push_id = _get_varlen_int(buf+off, &off);
   return NGHQ_OK;
 }

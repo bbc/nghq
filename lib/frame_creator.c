@@ -164,7 +164,7 @@ ssize_t create_data_frame(uint8_t* block, size_t block_len, uint8_t** frame,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
 ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
-                             nghq_header** hdrs, size_t num_hdrs,
+                             const nghq_header** hdrs, size_t num_hdrs,
                              uint8_t** frame, size_t* frame_len) {
   size_t frame_length, header_length, block_to_write;
   int hdrs_compressed;
@@ -303,7 +303,7 @@ int create_settings_frame(nghq_settings* settings, uint8_t** frame,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
-                                  uint64_t push_id, nghq_header** hdrs,
+                                  uint64_t push_id, const nghq_header** hdrs,
                                   size_t num_hdrs, uint8_t** frame,
                                   size_t* frame_len) {
   size_t  header_length, block_to_write, push_id_length, payload_length;
