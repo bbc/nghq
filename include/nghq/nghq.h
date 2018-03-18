@@ -286,7 +286,7 @@ extern int nghq_session_send (nghq_session *session);
  * NGHQ_EOF and end the session.
  */
 typedef ssize_t (*nghq_recv_callback) (nghq_session *session,
-                                       const uint8_t *data, size_t len,
+                                       uint8_t *data, size_t len,
                                        void *session_user_data);
 
 /**
@@ -306,7 +306,7 @@ typedef ssize_t (*nghq_recv_callback) (nghq_session *session,
  */
 
 typedef ssize_t (*nghq_decrypt_callback) (nghq_session *session,
-                                          uint8_t *encrypted,
+                                          const uint8_t *encrypted,
                                           size_t encrypted_len,
                                           const uint8_t *nonce, size_t noncelen,
                                           const uint8_t *ad, size_t adlen,
@@ -329,7 +329,8 @@ typedef ssize_t (*nghq_decrypt_callback) (nghq_session *session,
  *    return NGHQ_CRYPTO_ERROR.
  */
 typedef ssize_t (*nghq_encrypt_callback) (nghq_session *session,
-                                          uint8_t *clear, size_t clear_len,
+                                          const uint8_t *clear,
+                                          size_t clear_len,
                                           const uint8_t *nonce, size_t noncelen,
                                           const uint8_t *ad, size_t adlen,
                                           uint8_t *encrypted,
