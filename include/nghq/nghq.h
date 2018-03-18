@@ -33,6 +33,7 @@ extern "C" {
 #include <sys/types.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 /*
  * Type declarations
