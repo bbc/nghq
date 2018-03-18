@@ -1,9 +1,15 @@
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ev.h>
-#include <nghq/nghq.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <netinet/in.h>
+#include <unistd.h>
+
+#include <ev.h>
+
+#include <nghq/nghq.h>
 
 typedef enum ReceivingHeaders {
     HEADERS_REQUEST = 0,
@@ -17,16 +23,16 @@ typedef struct push_request {
 typedef struct session_data {
     nghq_session *session;
     ev_io socket_readable;
-    ev_loop recv_loop;
+    ev_idle recv_idle;
     int socket;
 } session_data;
 
-static ssize_t recv_cb (nghq_session *session, const uint8_t *data, size_t len,
+static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
                         void *session_user_data)
 {
-    session_data *data = (session_data*)session_user_data;
+    session_data *sdata = (session_data*)session_user_data;
     ssize_t result;
-    result = recv(data->socket, data, len, 0);
+    result = recv(sdata->socket, data, len, 0);
     if (result == EWOULDBLOCK) {
         return NGHQ_OK;
     }
@@ -36,25 +42,25 @@ static ssize_t recv_cb (nghq_session *session, const uint8_t *data, size_t len,
     return result;
 }
 
-static ssize_t decrypt_cb (nghq_session *session, uint8_t *encrypted,
+static ssize_t decrypt_cb (nghq_session *session, const uint8_t *encrypted,
                            size_t encrypted_len, const uint8_t *nonce,
                            size_t noncelen, const uint8_t *ad, size_t adlen,
                            uint8_t *clear, size_t clear_len,
                            void *session_user_data)
 {
-    session_data *data = (session_data*)session_user_data;
+    /*session_data *sdata = (session_data*)session_user_data;*/
     if (encrypted_len > clear_len) return NGHQ_CRYPTO_ERROR;
     memcpy(clear, encrypted, encrypted_len);
     return encrypted_len;
 }
 
-static ssize_t encrypt_cb (nghq_session *session, uint8_t *clear,
+static ssize_t encrypt_cb (nghq_session *session, const uint8_t *clear,
                            size_t clear_len, const uint8_t *nonce,
                            size_t noncelen, const uint8_t *ad, size_t adlen,
                            uint8_t *encrypted, size_t encrypted_len,
                            void *session_user_data)
 {
-    /* session_data *data = (session_data*)session_user_data; */
+    /* session_data *sdata = (session_data*)session_user_data; */
     if (clear_len > encrypted_len) return NGHQ_CRYPTO_ERROR;
     memcpy(encrypted, clear, clear_len);
     return clear_len;
@@ -63,14 +69,14 @@ static ssize_t encrypt_cb (nghq_session *session, uint8_t *clear,
 static ssize_t send_cb (nghq_session *session, const uint8_t *data, size_t len,
                         void *session_user_data)
 {
-    /* session_data *data = (session_data*)session_user_data; */
+    /* session_data *sdata = (session_data*)session_user_data; */
     return len;
 }
 
 static void session_status_cb (nghq_session *session, nghq_error status,
                                void *session_user_data)
 {
-    /* session_data *data = (session_data*)session_user_data; */
+    /* session_data *sdata = (session_data*)session_user_data; */
 }
 
 static int on_begin_headers_cb (nghq_session *session, nghq_headers_type type,
@@ -88,8 +94,7 @@ static int on_begin_headers_cb (nghq_session *session, nghq_headers_type type,
 }
 
 static int on_headers_cb (nghq_session *session, uint8_t flags,
-                                         nghq_header *hdr,
-                                         void *request_user_data)
+                          nghq_header *hdr, void *request_user_data)
 {
     push_request *req = (push_request*)request_user_data;
     printf("%c> %*s: %*s\n", ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'),
@@ -132,26 +137,26 @@ static nghq_settings g_settings = {
     NGHQ_SETTINGS_DEFAULT_MAX_HEADER_LIST_SIZE,  /* max_header_list_size */
 };
 
-static nghq_transport_settings = {
-    NGHQ_MODE_MULTICAST,        /* mode */
-    16,                         /* max_open_requests */
-    16,                         /* max_open_server_pushes */
-    60000000, /* 60s */         /* idle_timeout */
-    1500,                       /* max_packet_size */
-    0,        /* use default */ /* ack_delay_exponent */
+static nghq_transport_settings g_trans_settings = {
+    NGHQ_MODE_MULTICAST,  /* mode */
+    16,                   /* max_open_requests */
+    16,                   /* max_open_server_pushes */
+    60,                   /* idle_timeout (seconds) */
+    1500,                 /* max_packet_size */
+    0,  /* use default */ /* ack_delay_exponent */
 };
 
 static void socket_readable_cb (EV_P_ ev_io *w, int revents)
 {
     session_data *data = (session_data*)(w->data);
     ev_io_stop (EV_DEFAULT_UC_ w);
-    ev_loop_start (EV_DEFAULT_UC_ &data->recv_loop);
+    ev_idle_start (EV_DEFAULT_UC_ &data->recv_idle);
 }
 
-static void recv_loop_cb (EV_P_ ev_loop *w, int revents)
+static void recv_idle_cb (EV_P_ ev_idle *w, int revents)
 {
     session_data *data = (session_data*)(w->data);
-    ev_loop_stop (EV_DEFAULT_UC_ w);
+    ev_idle_stop (EV_DEFAULT_UC_ w);
     nghq_session_recv (data->session);
     ev_io_start (EV_DEFAULT_UC_ &data->socket_readable);
 }
@@ -180,31 +185,32 @@ int main(int argc, char *argv[])
     memcpy(&gsr.gsr_source, &src_addr, sizeof(src_addr));
 
     this_session.socket = socket (AF_INET, SOCK_DGRAM|SOCK_NONBLOCK, 0);
-    bind (this_session.socket, &mcast_addr, sizeof(mcast_addr));
+    bind (this_session.socket, (struct sockaddr*)&mcast_addr,
+            sizeof(mcast_addr));
     setsockopt (this_session.socket, IPPROTO_IP, MCAST_JOIN_SOURCE_GROUP, &gsr,
             sizeof(gsr));
 
     /* create libev events */
     ev_io_init (&this_session.socket_readable, socket_readable_cb,
             this_session.socket, EV_READ);
-    this_session.socket_readable.data = this_session;
+    this_session.socket_readable.data = &this_session;
 
-    ev_loop_init (&this_session.recv_loop, recv_loop_cb);
-    this_session.recv_loop.data = this_session;
+    ev_idle_init (&this_session.recv_idle, recv_idle_cb);
+    this_session.recv_idle.data = &this_session;
 
     /* initialise the client */
-    session = nghq_session_client_new (&g_callbacks, &g_settings,
+    this_session.session = nghq_session_client_new (&g_callbacks, &g_settings,
                                        &g_trans_settings, &this_session);
 
-    ev_io_start (EV_DEFAULT_UC_ &socket_readable);
+    ev_io_start (EV_DEFAULT_UC_ &this_session.socket_readable);
 
     ev_run (EV_DEFAULT_UC_ 0);
 
-    ev_io_stop (EV_DEFAULT_UC_ &socket_readable);
-    ev_loop_stop (EV_DEFAULT_UC_ &recv_loop);
+    ev_io_stop (EV_DEFAULT_UC_ &this_session.socket_readable);
+    ev_idle_stop (EV_DEFAULT_UC_ &this_session.recv_idle);
 
     /* tidy up */
-    nghq_session_free (session);
+    nghq_session_free (this_session.session);
     setsockopt(this_session.socket, IPPROTO_IP, MCAST_LEAVE_SOURCE_GROUP, &gsr,
            sizeof(gsr));
     close(this_session.socket);

@@ -2,6 +2,7 @@ noinst_PROGRAMS =
 if HAVE_LIBEV
 noinst_PROGRAMS += example-client example-server
 endif
+AM_LDFLAGS = $(top_builddir)/lib/libnghq.la
 AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir)/include
 example_client_LDADD = \
 	$(LIBEV_LIBS)
