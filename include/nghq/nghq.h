@@ -261,6 +261,9 @@ extern int nghq_session_recv (nghq_session *session);
  *
  * @return NGHQ_OK if the call succeeds
  * @return NGHQ_ERROR if nghq_send_callback fails
+ * @return NGHQ_NO_MORE_DATA if there was no data to send
+ * @return NGHQ_SESSION_BLOCKED if no data could be sent as there were too many
+ *    bytes in flight
  * @return NGHQ_OUT_OF_MEMORY if an internal part of the library failed to
  *    allocate memory
  * @return NGHQ_SESSION_CLOED If the session has been closed, the application
