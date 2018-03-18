@@ -43,6 +43,8 @@ uint64_t nghq_stream_id_map_search (nghq_map_ctx *ctx, void* user_data);
 nghq_stream *nghq_stream_id_map_stream_search(nghq_map_ctx *ctx,
                                               void* user_data);
 
+nghq_stream *nghq_stream_id_map_iterator (nghq_map_ctx *ctx, nghq_stream *prev);
+
 int nghq_stream_id_map_remove (nghq_map_ctx *ctx, uint64_t stream_id);
 
 size_t nghq_stream_id_map_num_requests (nghq_map_ctx *ctx);

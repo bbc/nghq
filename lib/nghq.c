@@ -50,6 +50,8 @@ nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
 
   memcpy(&session->callbacks, callbacks, sizeof(nghq_callbacks));
   memcpy(&session->settings, settings, sizeof(nghq_settings));
+  memcpy(&session->transport_settings, transport,
+         sizeof(nghq_transport_settings));
 
   session->transfers = nghq_stream_id_map_init();
   session->promises = nghq_stream_id_map_init();
@@ -154,16 +156,136 @@ nghq_stream * nghq_stream_init() {
   stream->tx_offset = 0;
   stream->user_data = NULL;
   stream->priority = 0;
-  stream->stream_state = STATE_OPEN;
+  stream->recv_state = STATE_OPEN;
+  stream->send_state = STATE_OPEN;
   return stream;
 }
 
-int nghq_session_recv (nghq_session *session) {
+#define BUFFER_READ_SIZE 4096
 
+int nghq_session_recv (nghq_session *session) {
+  int recv = 1;
+  int rv = NGHQ_NO_MORE_DATA;
+
+  while (recv) {
+    uint8_t* buf;
+    size_t buflen;
+
+    buf = (uint8_t *) malloc (BUFFER_READ_SIZE);
+    if (buf == NULL) {
+      recv = 0;
+      rv = NGHQ_OUT_OF_MEMORY;
+      break;
+    }
+
+    buflen = BUFFER_READ_SIZE;
+
+    ssize_t socket_rv = session->callbacks.recv_callback(session, buf, buflen,
+                                                   session->session_user_data);
+    if (socket_rv < 0) {
+      /* errors */
+      if (socket_rv == NGHQ_EOF) {
+        return NGHQ_SESSION_CLOSED;
+      }
+      return NGHQ_ERROR;
+    } else if (socket_rv == 0) {
+      /* no more data to read */
+      recv = 0;
+    } else {
+      nghq_io_buf_new(session->recv_buf, buf, buflen);
+    }
+  }
+
+  while (session->recv_buf != NULL) {
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    uint64_t us_timestamp = (1000000 * tv.tv_sec) + tv.tv_usec;
+    rv = nghtcp2_conn_recv(session->ngtcp2_session, session->recv_buf->buf,
+                           session->recv_buf->buf_len, us_timestamp);
+
+    free (session->recv_buf->buf);
+    nghq_io_buf *pop = session->recv_buf;
+    session->recv_buf = session->recv_buf->next_buf;
+    free (pop);
+
+    if (rv != 0) {
+      if (rv == NGTCP2_ERR_TLS_DECRYPT) {
+        return NGHQ_CRYPTO_ERROR;
+      }
+      return NGHQ_ERROR;
+    }
+
+    rv = NGHQ_OK;
+
+    if (ngtcp2_conn_in_draining_period(session->ngtcp2_session)) {
+      return NGHQ_SESSION_CLOSED;
+    }
+  }
+
+  return rv;
 }
 
-int nghq_session_send (nghq_session *session) {
+/* TODO: Make this more scalable? Copied from client.cc in ngtcp2 examples */
+#define MAX_BYTES_IN_FLIGHT 1460 * 10
 
+int nghq_session_send (nghq_session *session) {
+  /*
+   * Go through all the streams and grab any packets that need sending
+   *
+   * TODO: This won't work particularly well when there's a lot of streams
+   * running at once - it'll always send data from the lower streams even if
+   * there's a lot of data waiting on higher number streams - change the list
+   * of frames waiting to be sent into an all-streams structure?
+   */
+  nghq_stream *it = nghq_stream_id_map_iterator(it);
+  int rv = NGHQ_NO_MORE_DATA;
+  while ((rv != NGHQ_ERROR) && (rv != NGHQ_EOF)) {
+    if (ngtcp2_conn_bytes_in_flight(session->ngtcp2_session) >= MAX_BYTES_IN_FLIGHT) {
+      if (rv == NGHQ_NO_MORE_DATA) {
+        return NGHQ_SESSION_BLOCKED;
+      }
+      break;
+    }
+
+    size_t datalen;
+
+    nghq_io_buf *new_pkt = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
+    new_pkt->buf = (uint8_t *) malloc(
+        session->transport_settings->max_packet_size);
+    new_pkt->buf_len = session->transport_settings->max_packet_size;
+
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    uint64_t us_timestamp = (1000000 * tv.tv_sec) + tv.tv_usec;
+
+    ssize_t sent = ngtcp2_conn_write_stream(session->ngtcp2_session,
+                                            new_pkt->buf, new_pkt->buf_len,
+                                            &datalen, it->stream_id,
+                                            it->send_buf->complete,
+                                            it->send_buf->buf,
+                                            it->send_buf->buf_len,
+                                            us_timestamp);
+
+    if (sent < 0) {
+      switch (sent) {
+        case NGTCP2_ERR_EARLY_DATA_REJECTED:
+        case NGTCP2_ERR_STREAM_DATA_BLOCKED:
+        case NGTCP2_ERR_STREAM_SHUT_WR:
+        case NGTCP2_ERR_STREAM_NOT_FOUND:
+          return 0;
+      }
+      rv = NGHQ_TRANSPORT_ERROR;
+      break;
+    }
+
+    new_pkt->buf_len = sent;
+
+    nghq_io_buf_push(session->send_buf, new_pkt);
+
+    rv = nghq_write_send_buffer (session);
+  }
+
+  return rv;
 }
 
 int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
@@ -455,7 +577,7 @@ int nghq_set_max_promises (nghq_session* session, uint64_t max_push) {
     return rv;
   }
 
-  rv = nghq_queue_send_frame(NGHQ_CONTROL_CLIENT, buf, buflen);
+  rv = nghq_queue_send_frame(session, NGHQ_CONTROL_CLIENT, buf, buflen);
 
   return rv;
 }
@@ -512,7 +634,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
 
           for (i = 0; i < num_hdrs; i++) {
             uint8_t flags = 0;
-            if (stream->stream_state >= STATE_RESPONSE_BODY) {
+            if (stream->recv_state >= STATE_HDRS) {
               flags += NGHQ_HEADERS_FLAGS_TRAILERS;
             }
             session->callbacks.on_headers_callback (session, flags, hdrs[i],
@@ -577,9 +699,6 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
 
             for (i = 0; i < num_hdrs; i++) {
               uint8_t flags = 0;
-              if (stream->stream_state >= STATE_RESPONSE_BODY) {
-                flags += NGHQ_HEADERS_FLAGS_TRAILERS;
-              }
               session->callbacks.on_headers_callback (session, flags, hdrs[i],
                                                new_promised_stream->user_data);
             }
@@ -619,9 +738,50 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
   }
 }
 
+int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
+                           uint8_t* buf, size_t buflen) {
+  int rv = NGHQ_INTERNAL_ERROR;
+  nghq_stream *stream = nghq_stream_id_map_find(session->transfers, stream_id);
+  if (stream != NULL) {
+    nghq_io_buf_new (session->transfers, buf, buflen);
+    rv = NGHQ_OK;
+  }
+  return rv;
+}
+
+int nghq_write_send_buffer (nghq_session* session) {
+  int rv = NGHQ_SESSION_BLOCKED;
+  while (session->send_buf != NULL) {
+    ssize_t written =
+        session->callbacks->send_callback (session, session->send_buf->buf,
+                                           session->send_buf->buf_len,
+                                           session->session_user_data);
+
+    if (written != session->send_buf->buf_len) {
+      if (written == 0) {
+        break;
+      } else if (written == NGHQ_EOF) {
+        rv = NGHQ_EOF;
+        break;
+      }
+      rv = NGHQ_ERROR;
+      break;
+    }
+
+    free (session->send_buf->buf);
+    nghq_io_buf *pop = session->send_buf;
+    session->send_buf = session->send_buf->next_buf;
+    free (pop);
+  }
+  return rv;
+}
+
 int nghq_stream_close (nghq_session* session, nghq_stream *stream,
                        uint16_t app_error_code) {
+  nghq_error status;
+  switch (app_error_code) {
 
+  }
 }
 
 int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id) {

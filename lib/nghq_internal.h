@@ -47,6 +47,14 @@ typedef struct nghq_io_buf {
   struct nghq_io_buf *next_buf;
 } nghq_io_buf;
 
+typedef enum nghq_stream_state {
+  STATE_OPEN,
+  STATE_HDRS,
+  STATE_BODY,
+  STATE_TRAILERS,
+  STATE_DONE
+} nghq_stream_state;
+
 typedef struct {
   uint64_t      push_id;
   uint64_t      stream_id;
@@ -56,14 +64,8 @@ typedef struct {
   uint64_t      tx_offset;  /*Offset where all data before is acked by remote peer*/
   void *        user_data;
   uint8_t       priority;
-  enum {
-    STATE_OPEN,
-    STATE_REQ_HDRS_SENT,
-    STATE_REQ_SENT,
-    STATE_RESPONSE_HDRS,
-    STATE_RESPONSE_BODY,
-    STATE_DONE
-  } stream_state;
+  nghq_stream_state recv_state;
+  nghq_stream_state send_state;
   int           started;
 } nghq_stream;
 
@@ -93,6 +95,7 @@ struct nghq_session {
   /* Application-specific stuff */
   nghq_callbacks  callbacks;
   nghq_settings   settings;
+  nghq_transport_settings transport_settings;
 
   /* Currently running transfers */
   nghq_map_ctx *  transfers;
@@ -108,6 +111,11 @@ struct nghq_session {
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
                            uint64_t* data, size_t datalen);
+
+int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
+                           uint8_t* buf, size_t buflen);
+
+int nghq_write_send_buffer (nghq_session* session);
 
 int nghq_stream_close (nghq_session* session, nghq_stream *stream,
                        uint16_t app_error_code);
