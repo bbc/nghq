@@ -558,7 +558,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
         uint64_t push_id;
 
         ssize_t rv = parse_push_promise_frame (session->hdr_ctx,
-					       stream->recv_buf->buf,
+                                               stream->recv_buf->buf,
                                                stream->recv_buf->buf_len,
                                                &push_id, &hdrs, &num_hdrs);
 
