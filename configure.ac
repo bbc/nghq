@@ -25,6 +25,23 @@ PKG_CHECK_MODULES([NGHTTP2], [libnghttp2])
 # Check for required ngtcp2
 PKG_CHECK_MODULES([NGTCP2], [libngtcp2])
 
+LIBEV_CFLAGS=
+LIBEV_LIBS=
+HAVE_LIBEV=0
+AX_LIB_EV([>= 4.0], [
+	   LIBEV_CFLAGS=$libev_CFLAGS
+	   LIBEV_LIBS=$libev_LIBS
+	   HAVE_LIBEV=1
+	   ], [
+	   AC_MSG_WARN([[libev development headers and library are required to build examples, please
+install the relevant packages for your system to enable the examples to be
+built.]])
+	   ])
+AM_CONDITIONAL([HAVE_LIBEV], [test "$HAVE_LIBEV" -eq 1])
+AC_DEFINE_UNQUOTED([HAVE_LIBEV], [$HAVE_LIBEV], [If we have libev available])
+AC_SUBST([LIBEV_CFLAGS])
+AC_SUBST([LIBEV_LIBS])
+
 AC_CONFIG_FILES([
   Makefile
   lib/Makefile
@@ -33,3 +50,4 @@ AC_CONFIG_FILES([
   examples/Makefile
 ])
 
+AC_OUTPUT
