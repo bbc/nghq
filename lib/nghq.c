@@ -167,7 +167,7 @@ int nghq_session_send (nghq_session *session) {
 }
 
 int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
-                         size_t num_hdrs, uint8_t *req_body, size_t len,
+                         size_t num_hdrs, const uint8_t *req_body, size_t len,
                          void *request_user_data) {
   int rv;
   nghq_stream *new_stream;
@@ -384,8 +384,8 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
   return rv;
 }
 
-ssize_t nghq_feed_payload_data(nghq_session *session, uint8_t *buf, size_t len,
-                               void *request_user_data) {
+ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
+                               size_t len, void *request_user_data) {
   nghq_io_buf* frame;
   uint64_t stream_id;
   nghq_stream* stream;

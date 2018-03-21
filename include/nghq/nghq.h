@@ -503,8 +503,8 @@ typedef int (*nghq_on_request_close_callback) (nghq_session *session,
  *    control.
  */
 extern int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
-                                size_t num_hdrs, uint8_t *req_body, size_t len,
-                                void *request_user_data);
+                                size_t num_hdrs, const uint8_t *req_body,
+                                size_t len, void *request_user_data);
 
 /**
  * @brief Submit a push promise to a client
@@ -608,7 +608,7 @@ extern int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
  *    control.
  * @return NGHQ_REQUEST_CLOSED if the request is closed
  */
-extern ssize_t nghq_feed_payload_data(nghq_session *session, uint8_t *buf,
+extern ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
                                       size_t len, void *request_user_data);
 
 /**

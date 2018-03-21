@@ -112,7 +112,7 @@ size_t _create_frame_header (size_t payload_len, nghq_frame_type type,
   return off;
 }
 
-void _create_frame (nghq_frame_type type, uint8_t flags, uint8_t* payload,
+void _create_frame (nghq_frame_type type, uint8_t flags, const uint8_t* payload,
                     size_t payload_len, uint8_t* frame, size_t frame_length) {
   size_t header_length = _create_frame_header (payload_len, type, flags, frame);
 
@@ -131,8 +131,8 @@ void _create_frame (nghq_frame_type type, uint8_t flags, uint8_t* payload,
  * |                         Body Block (*)                        |  DATA
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-ssize_t create_data_frame(uint8_t* block, size_t block_len, uint8_t** frame,
-                          size_t* frame_len) {
+ssize_t create_data_frame(const uint8_t* block, size_t block_len,
+                          uint8_t** frame, size_t* frame_len) {
   size_t block_to_write = block_len;
 
   if (block == NULL) {

@@ -62,8 +62,8 @@ typedef struct nghq_hdr_compression_ctx nghq_hdr_compression_ctx;
  * @return NGHQ_OUT_OF_MEMORY if memory for the new DATA frame couldn't be
  *    allocated
  */
-ssize_t create_data_frame(uint8_t* block, size_t block_len, uint8_t** frame,
-                          size_t* frame_len);
+ssize_t create_data_frame(const uint8_t* block, size_t block_len,
+                          uint8_t** frame, size_t* frame_len);
 
 /**
  * @brief Package a series of name-value pair headers into a HEADERS frame
