@@ -31,53 +31,6 @@
 #include "header_compression.h"
 #include "util.h"
 
-/*
- * 62 bit max: 0x3FFFFFFFFFFFFFFF (4611686018427387903)
- * 30 bit max: 0x3FFFFFFF
- * 14 bit max: 0x3FFF
- * 6 bit max: 0x3F
- */
-#define _VARLEN_INT_MAX_62_BIT 0x4000000000000000ULL
-#define _VARLEN_INT_MAX_30_BIT 0x40000000
-#define _VARLEN_INT_MAX_14_BIT 0x4000
-#define _VARLEN_INT_MAX_6_BIT 0x40
-
-/*
- * Create a new variable length integer into the memory provided in @p buf, and
- * return the number of bytes that were used to write it. If the number was
- * too big, then it returns 0.
- *
- * If @p buf is NULL, this only calculates how big the buffer would need to be.
- */
-size_t _make_varlen_int (uint8_t* buf, uint64_t n) {
-  size_t rv;
-  if (n < _VARLEN_INT_MAX_6_BIT) {
-    if (buf != NULL) {
-      buf[0] = (uint8_t) n;
-    }
-    rv = 1;
-  } else if (n < _VARLEN_INT_MAX_14_BIT) {
-    if (buf != NULL) {
-      memcpy(buf, (uint8_t *)&n, 2);
-    }
-    rv = 2;
-  } else if (n < _VARLEN_INT_MAX_30_BIT) {
-    if (buf != NULL) {
-      memcpy(buf, (uint8_t *)&n, 4);
-    }
-    rv = 4;
-  } else if (n < _VARLEN_INT_MAX_62_BIT) {
-    if (buf != NULL) {
-      memcpy(buf, (uint8_t *)&n, 8);
-    }
-    rv = 8;
-  } else {
-    /* Couldn't actually encode this integer (>62 bits) */
-    rv = 0;
-  }
-  return rv;
-}
-
 /**
  * Calculate the size of a new frame header suitable for the passed-in payload
  * length for the given type and with the set flags. If the payload length is

@@ -15,7 +15,8 @@ OBJECTS = \
 	frame_parser.c \
 	header_compression.c \
 	map.c \
-    nghq.c
+	util.c \
+	nghq.c
 
 HDRS = \
 	frame_creator.h \

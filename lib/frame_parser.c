@@ -31,65 +31,7 @@
 #include "header_compression.h"
 #include "util.h"
 
-#define _VARLEN_INT_62_BIT 0xC0
-#define _VARLEN_INT_30_BIT 0x80
-#define _VARLEN_INT_14_BIT 0x40
-#define _VARLEN_INT_6_BIT 0x00
 
-/*
- * A function to get a variable length integer, as well as how many bytes long
- * it was to adjust buffer offsets. @p buf *must* be at least 8 bytes long to
- * contain a full varlen. It will assume bytes starts at 0 on buf and add the
- * number of bytes read on, so you can use it to keep track of a buffer offset
- * on repeated calls to the library.
- *
- * ngtcp2 has some routines for this, but they're not exposed by the public
- * API, which is unfortunate. So I've cribbed this from ngtcp2_get_varint -
- * https://github.com/ngtcp2/ngtcp2/blob/master/lib/ngtcp2_conv.c
- */
-
-#ifdef WORDS_BIGENDIAN
-#define bswap64(N) (N)
-#else /* !WORDS_BIGENDIAN */
-#define bswap64(N) \
-  ((uint64_t)(ntohl((uint32_t)(N))) << 32 | ntohl((uint32_t)((N) >> 32)))
-#endif /* !WORDS_BIGENDIAN */
-uint64_t _get_varlen_int (uint8_t* buf, size_t* bytes) {
-  uint64_t rv = 0;
-  union {
-    char b[8];
-    uint16_t n16;
-    uint32_t n32;
-    uint64_t n64;
-  } n;
-
-  switch (buf[0] & 0xC0) {
-    case _VARLEN_INT_6_BIT:
-      bytes += 1;
-      rv = (uint64_t) buf[0];
-      break;
-    case _VARLEN_INT_14_BIT:
-      memcpy(&n, buf, 2);
-      n.b[0] &= 0x3f;
-      rv = (uint64_t) ntohs(n.n16);
-      bytes += 2;
-      break;
-    case _VARLEN_INT_30_BIT:
-      memcpy(&n, buf, 4);
-      n.b[0] &= 0x3f;
-      rv = (uint64_t) ntohl(n.n32);
-      bytes += 4;
-      break;
-    case _VARLEN_INT_62_BIT:
-      memcpy(&n, buf, 8);
-      n.b[0] &= 0x3f;
-      rv = (uint64_t) bswap64(n.n64);
-      bytes += 8;
-      break;
-  }
-
-  return rv;
-}
 
 /*
  * Parse the frame header - returns the length of the frame. @p buf *must* be
