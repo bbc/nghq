@@ -237,7 +237,7 @@ int nghq_session_send (nghq_session *session) {
    * there's a lot of data waiting on higher number streams - change the list
    * of frames waiting to be sent into an all-streams structure?
    */
-  nghq_stream *it = nghq_stream_id_map_iterator(it);
+  nghq_stream *it = nghq_stream_id_map_iterator(session->transfers, it);
   int rv = NGHQ_NO_MORE_DATA;
   while ((rv != NGHQ_ERROR) && (rv != NGHQ_EOF)) {
     if (ngtcp2_conn_bytes_in_flight(session->ngtcp2_session) >= MAX_BYTES_IN_FLIGHT) {
@@ -251,8 +251,8 @@ int nghq_session_send (nghq_session *session) {
 
     nghq_io_buf *new_pkt = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
     new_pkt->buf = (uint8_t *) malloc(
-        session->transport_settings->max_packet_size);
-    new_pkt->buf_len = session->transport_settings->max_packet_size;
+        session->transport_settings.max_packet_size);
+    new_pkt->buf_len = session->transport_settings.max_packet_size;
 
     struct timeval tv;
     gettimeofday(&tv,NULL);
@@ -753,7 +753,7 @@ int nghq_write_send_buffer (nghq_session* session) {
   int rv = NGHQ_SESSION_BLOCKED;
   while (session->send_buf != NULL) {
     ssize_t written =
-        session->callbacks->send_callback (session, session->send_buf->buf,
+        session->callbacks.send_callback (session, session->send_buf->buf,
                                            session->send_buf->buf_len,
                                            session->session_user_data);
 
