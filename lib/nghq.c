@@ -200,7 +200,7 @@ int nghq_session_recv (nghq_session *session) {
     struct timeval tv;
     gettimeofday(&tv,NULL);
     uint64_t us_timestamp = (1000000 * tv.tv_sec) + tv.tv_usec;
-    rv = nghtcp2_conn_recv(session->ngtcp2_session, session->recv_buf->buf,
+    rv = ngtcp2_conn_recv(session->ngtcp2_session, session->recv_buf->buf,
                            session->recv_buf->buf_len, us_timestamp);
 
     free (session->recv_buf->buf);
@@ -743,7 +743,7 @@ int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
   int rv = NGHQ_INTERNAL_ERROR;
   nghq_stream *stream = nghq_stream_id_map_find(session->transfers, stream_id);
   if (stream != NULL) {
-    nghq_io_buf_new (session->transfers, buf, buflen);
+    nghq_io_buf_new (stream->send_buf, buf, buflen);
     rv = NGHQ_OK;
   }
   return rv;
