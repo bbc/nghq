@@ -24,6 +24,7 @@
  */
 
 #include <string.h>
+#include <sys/time.h>
 
 #include "nghq/nghq.h"
 #include "nghq_internal.h"
