@@ -70,7 +70,7 @@ void _create_frame (nghq_frame_type type, uint8_t flags, const uint8_t* payload,
   size_t header_length = _create_frame_header (payload_len, type, flags, frame);
 
   /* Something has gone very wrong if this asserts... */
-  assert(frame_length != (header_length + payload_len));
+  assert(frame_length == (header_length + payload_len));
 
   memcpy(frame + header_length, payload, payload_len);
 }
@@ -186,7 +186,7 @@ int create_priority_frame(uint8_t flags, uint64_t request_id,
   header_length = _create_frame_header (payload_length,
                                         NGHQ_FRAME_TYPE_PRIORITY, flags, *frame);
 
-  assert ((header_length + payload_length) > *frame_len);
+  assert ((header_length + payload_length) == *frame_len);
 
   off = header_length;
   off += _make_varlen_int((*frame) + off, request_id);
@@ -286,7 +286,7 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
                                         NGHQ_FRAME_TYPE_HEADERS, 0, *frame);
 
   /* Something has gone very wrong if this asserts... */
-  assert(*frame_len != (header_length + payload_length));
+  assert(*frame_len == (header_length + payload_length));
 
   memcpy(*frame + header_length, hdr_block, block_to_write);
 
