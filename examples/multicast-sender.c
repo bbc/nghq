@@ -147,18 +147,18 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
                             const uint8_t *data, size_t len,
                             void *request_user_data)
 {
-    printf("Received %z bytes\n", len);
+    printf("Received %zu bytes\n", len);
 }
 
 static int on_push_cancel_cb (nghq_session *session, void *request_user_data)
 {
-    printf("Push cancelled");
+    printf("Push cancelled\n");
 }
 
 static int on_request_close_cb  (nghq_session *session, nghq_error status,
                                  void *request_user_data)
 {
-    printf("Request finished");
+    printf("Request finished\n");
 }
 
 static nghq_callbacks g_callbacks = {
@@ -197,9 +197,13 @@ static void socket_writable_cb (EV_P_ ev_io *w, int revents)
 
 static void send_idle_cb (EV_P_ ev_idle *w, int revents)
 {
+    int rv;
     server_session *sdata = (server_session*)(w->data);
     ev_idle_stop (EV_DEFAULT_UC_ w);
-    nghq_session_send (sdata->session);
+    rv = nghq_session_send (sdata->session);
+    if (rv != NGHQ_OK) {
+      ev_break (EV_DEFAULT_UC_ EVBREAK_ALL);
+    }
     ev_io_start (EV_DEFAULT_UC_ &sdata->socket_writable);
 }
 
