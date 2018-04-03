@@ -270,6 +270,9 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
 
   hdrs_compressed = nghq_deflate_hdr (ctx, hdrs, num_hdrs, &hdr_block,
                                       &block_to_write);
+  if (hdrs_compressed < 0) {
+    return (ssize_t) hdrs_compressed;
+  }
 
   payload_length = block_to_write + push_id_length;
 
@@ -280,13 +283,16 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
     return NGHQ_OUT_OF_MEMORY;
   }
 
-  header_length = _create_frame_header (block_to_write,
-                                        NGHQ_FRAME_TYPE_HEADERS, 0, *frame);
+  header_length = _create_frame_header (payload_length,
+                                        NGHQ_FRAME_TYPE_PUSH_PROMISE, 0,
+                                        *frame);
 
   /* Something has gone very wrong if this asserts... */
   assert(*frame_len == (header_length + payload_length));
 
-  memcpy(*frame + header_length, hdr_block, block_to_write);
+  _make_varlen_int(*frame + header_length, push_id);
+
+  memcpy(*frame + header_length + push_id_length, hdr_block, block_to_write);
 
   return (ssize_t) hdrs_compressed;
 }
