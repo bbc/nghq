@@ -30,6 +30,7 @@
 #include "frame_creator.h"
 #include "header_compression.h"
 #include "util.h"
+#include "nghq_internal.h"
 
 /**
  * Calculate the size of a new frame header suitable for the passed-in payload
@@ -37,14 +38,11 @@
  * too big for the frame, this changes the value of payload_len to say how much
  * data can fit into the frame. This function then returns the total frame size.
  */
-size_t _calculate_frame_size (size_t* payload_len) {
-  int done = 0;
-  size_t rv = 0;
-
+size_t _calculate_frame_size (size_t payload_len) {
   size_t header_varlen_int_length = _make_varlen_int(NULL,
-                                                     (uint64_t) *payload_len);
+                                                     (uint64_t) payload_len);
 
-  return rv;
+  return header_varlen_int_length + 2 + payload_len;
 }
 
 /*
@@ -92,7 +90,7 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
     return NGHQ_ERROR;
   }
 
-  *frame_len = _calculate_frame_size (&block_to_write);
+  *frame_len = _calculate_frame_size (block_to_write);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -131,7 +129,7 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
   hdrs_compressed = nghq_deflate_hdr (ctx, hdrs, num_hdrs, &hdr_block,
                                       &block_to_write);
 
-  *frame_len = _calculate_frame_size (&block_to_write);
+  *frame_len = _calculate_frame_size (block_to_write);
 
   if (push_id >= 0) {
     push_stream_header_len = _make_varlen_int(NULL, (uint64_t) push_id);
@@ -176,7 +174,7 @@ int create_priority_frame(uint8_t flags, uint64_t request_id,
       _make_varlen_int(NULL, dependency_id) + 1;
   assert(payload_length > 2);
 
-  *frame_len = _calculate_frame_size(&payload_length);
+  *frame_len = _calculate_frame_size(payload_length);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -212,7 +210,7 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
   push_id_length = _make_varlen_int(NULL, push_id);
   assert(push_id_length > 0);
 
-  *frame_len = _calculate_frame_size(&push_id_length);
+  *frame_len = _calculate_frame_size(push_id_length);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -275,7 +273,7 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
 
   payload_length = block_to_write + push_id_length;
 
-  *frame_len = _calculate_frame_size (&payload_length);
+  *frame_len = _calculate_frame_size (payload_length);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -309,7 +307,7 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
   last_stream_id_length = _make_varlen_int(NULL, last_stream_id);
   assert(last_stream_id_length > 0);
 
-  *frame_len = _calculate_frame_size(&last_stream_id_length);
+  *frame_len = _calculate_frame_size(last_stream_id_length);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -340,7 +338,7 @@ int create_max_push_id_frame(uint64_t max_push_id, uint8_t** frame,
   max_push_id_length = _make_varlen_int(NULL, max_push_id);
   assert(max_push_id_length > 0);
 
-  *frame_len = _calculate_frame_size(&max_push_id_length);
+  *frame_len = _calculate_frame_size(max_push_id_length);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
