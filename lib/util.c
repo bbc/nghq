@@ -25,6 +25,9 @@
 
 #include "util.h"
 #include <string.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
+#include <sys/time.h>
 
 uint16_t get_uint16_from_buf (uint8_t* buf) {
   uint16_t rv;
@@ -57,6 +60,12 @@ int64_t get_int64_from_buf (uint8_t* buf) {
   int64_t rv;
   memcpy (&rv, buf, 8);
   return bswap64(rv);
+}
+
+uint64_t get_timestamp_now () {
+  struct timeval tv;
+  gettimeofday(&tv,NULL);
+  return ((1000000 * tv.tv_sec) + tv.tv_usec);
 }
 
 /*
@@ -151,4 +160,13 @@ uint64_t _get_varlen_int (uint8_t* buf, size_t* bytes) {
   }
 
   return rv;
+}
+
+uint64_t rand64 () {
+  uint64_t n;
+
+  n = (uint64_t) rand();
+  n |= ((uint64_t) rand()) << 32;
+
+  return n;
 }

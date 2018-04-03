@@ -45,6 +45,8 @@ int32_t get_int32_from_buf (uint8_t* buf);
 uint64_t get_uint64_from_buf (uint8_t* buf);
 int64_t get_int64_from_buf (uint8_t* buf);
 
+uint64_t get_timestamp_now();
+
 /*
  * 62 bit max: 0x3FFFFFFFFFFFFFFF (4611686018427387903)
  * 30 bit max: 0x3FFFFFFF
@@ -63,5 +65,7 @@ int64_t get_int64_from_buf (uint8_t* buf);
 
 size_t _make_varlen_int (uint8_t* buf, uint64_t n);
 uint64_t _get_varlen_int (uint8_t* buf, size_t* bytes);
+
+uint64_t rand64();
 
 #endif /* LIB_UTIL_H_ */
