@@ -46,7 +46,7 @@ size_t _calculate_frame_size (size_t payload_len) {
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -74,7 +74,7 @@ void _create_frame (nghq_frame_type type, uint8_t flags, const uint8_t* payload,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -104,7 +104,7 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |                    Optional Push Stream Header                |
@@ -117,7 +117,7 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
 ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
                              const nghq_header** hdrs, size_t num_hdrs,
                              uint8_t** frame, size_t* frame_len) {
-  size_t frame_length, header_length, block_to_write;
+  size_t block_to_write;
   int hdrs_compressed;
   uint8_t* hdr_block;
   size_t push_stream_header_len = 0;
@@ -153,7 +153,7 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -195,7 +195,7 @@ int create_priority_frame(uint8_t flags, uint64_t request_id,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -226,7 +226,7 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)      ... |    Type (8)   |   Flags (8)   |  Frame HDR
@@ -243,7 +243,7 @@ int create_settings_frame(nghq_settings* settings, uint8_t** frame,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -292,7 +292,7 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -323,7 +323,7 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR

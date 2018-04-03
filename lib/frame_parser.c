@@ -80,7 +80,7 @@ ssize_t parse_frames (uint8_t* buf, size_t buf_len, nghq_frame_type *type) {
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -106,7 +106,7 @@ ssize_t parse_data_frame (uint8_t* buf, size_t buf_len, uint8_t** data,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -134,7 +134,7 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, uint8_t* buf,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -164,7 +164,7 @@ int parse_priority_frame (uint8_t* buf, size_t buf_len, uint8_t* flags,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -186,7 +186,7 @@ int parse_cancel_push_frame (uint8_t* buf, size_t buf_len, uint64_t* push_id) {
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)      ... |    Type (8)   |   Flags (8)   |  Frame HDR
@@ -254,7 +254,7 @@ int parse_settings_frame (uint8_t* buf, size_t buf_len,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -287,7 +287,7 @@ ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
@@ -309,7 +309,7 @@ int parse_goaway_frame (uint8_t* buf, size_t buf_len, uint64_t* last_stream_id){
 }
 
 /*
- *     0                   1                   2                   3
+ *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
