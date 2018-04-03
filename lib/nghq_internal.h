@@ -59,6 +59,7 @@ typedef struct {
   uint8_t       priority;
   nghq_stream_state recv_state;
   nghq_stream_state send_state;
+  nghq_error    status;
   int           started;
 } nghq_stream;
 

@@ -180,11 +180,12 @@ nghq_stream *nghq_stream_id_map_iterator (nghq_map_ctx* ctx, nghq_stream *prev) 
   return rv;
 }
 
-int nghq_stream_id_map_remove (nghq_map_ctx *ctx, uint64_t stream_id) {
+nghq_stream *nghq_stream_id_map_remove (nghq_map_ctx *ctx, uint64_t stream_id) {
   _stream_id_list_node *find;
+  nghq_stream *rv = NULL;
 
   if (ctx == NULL) {
-    return NGHQ_ERROR;
+    return NULL;
   }
 
   find = ctx->begin;
@@ -198,6 +199,7 @@ int nghq_stream_id_map_remove (nghq_map_ctx *ctx, uint64_t stream_id) {
         } else {
           ctx->begin = find->next;
           ctx->begin->prev = NULL;
+          rv = ctx->begin->stream_data;
         }
       } else if (find == ctx->end) {
         if (find->prev == NULL) {  /* The only item */
@@ -210,15 +212,16 @@ int nghq_stream_id_map_remove (nghq_map_ctx *ctx, uint64_t stream_id) {
       } else {
         find->prev->next = find->next;
         find->next->prev = find->prev;
+        rv = find->next->stream_data;
       }
       free (find);
       ctx->size--;
-      return NGHQ_OK;
+      return rv;
     }
     find = find->next;
   }
 
-  return NGHQ_ERROR;
+  return NULL;
 }
 
 size_t nghq_stream_id_map_num_requests (nghq_map_ctx *ctx) {

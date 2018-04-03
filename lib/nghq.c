@@ -56,6 +56,8 @@ nghq_stream * nghq_stream_init() {
   stream->priority = 0;
   stream->recv_state = STATE_OPEN;
   stream->send_state = STATE_OPEN;
+  stream->status = NGHQ_OK;
+  stream->started = 0;
   return stream;
 }
 
@@ -448,10 +450,11 @@ int nghq_session_send (nghq_session *session) {
         session->transport_settings.max_packet_size);
     new_pkt->buf_len = session->transport_settings.max_packet_size;
 
+    uint8_t last_data = (uint8_t) it->send_buf->complete;
     ssize_t pkt_len = ngtcp2_conn_write_stream(session->ngtcp2_session,
                                                new_pkt->buf, new_pkt->buf_len,
                                                &sent, it->stream_id,
-                                               it->send_buf->complete,
+                                               last_data,
                                                it->send_buf->send_pos,
                                                it->send_buf->remaining,
                                                get_timestamp_now());
@@ -480,6 +483,14 @@ int nghq_session_send (nghq_session *session) {
         it->send_buf->remaining -= sent;
         DEBUG("%lu bytes remaining of buffer to send on stream %lu\n",
               it->send_buf->remaining, it->stream_id);
+        /*
+         * If the final bit is set but we still have data to send, unset it!
+         */
+        if (new_pkt->buf[0] & 0x01) {
+          DEBUG("Having to unset the final bit in the frame header!\n");
+          new_pkt->buf[0] |= 0xFE;
+        }
+        last_data = 0;
       }
     }
 
@@ -488,6 +499,19 @@ int nghq_session_send (nghq_session *session) {
     nghq_io_buf_push(&session->send_buf, new_pkt);
 
     rv = nghq_write_send_buffer (session);
+
+    if (last_data) {
+      DEBUG("Ending stream %lu\n", it->stream_id);
+      if (session->callbacks.on_request_close_callback != NULL) {
+        session->callbacks.on_request_close_callback(session, it->status,
+                                                     it->user_data);
+      }
+      it->send_state = STATE_DONE;
+      it = nghq_stream_id_map_remove (session->transfers, it->stream_id);
+      if (it == NULL) {
+        break;
+      }
+    }
   }
 
   return rv;
