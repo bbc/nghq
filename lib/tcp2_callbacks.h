@@ -28,36 +28,6 @@
 
 #include <ngtcp2/ngtcp2.h>
 
-/*
- * typedef struct {
-  ngtcp2_send_client_initial send_client_initial;
-  ngtcp2_send_client_handshake send_client_handshake;
-  ngtcp2_recv_client_initial recv_client_initial;
-  ngtcp2_send_server_handshake send_server_handshake;
-  ngtcp2_recv_stream0_data recv_stream0_data;
-  ngtcp2_send_pkt send_pkt;
-  ngtcp2_send_frame send_frame;
-  ngtcp2_recv_pkt recv_pkt;
-  ngtcp2_recv_frame recv_frame;
-  ngtcp2_handshake_completed handshake_completed;
-  ngtcp2_recv_version_negotiation recv_version_negotiation;
-  /* hs_encrypt is a callback function which is invoked to encrypt
-     handshake packets. *
-  ngtcp2_encrypt hs_encrypt;
-  /* hs_decrypt is a callback function which is invoked to encrypt
-     handshake packets. *
-  ngtcp2_decrypt hs_decrypt;
-  ngtcp2_encrypt encrypt;
-  ngtcp2_decrypt decrypt;
-  ngtcp2_recv_stream_data recv_stream_data;
-  ngtcp2_acked_stream_data_offset acked_stream_data_offset;
-  ngtcp2_stream_close stream_close;
-  ngtcp2_recv_stateless_reset recv_stateless_reset;
-  ngtcp2_recv_server_stateless_retry recv_server_stateless_retry;
-  ngtcp2_extend_max_stream_id extend_max_stream_id;
-} ngtcp2_conn_callbacks;
- */
-
 ssize_t nghq_transport_send_client_initial (ngtcp2_conn *conn, uint32_t flags,
                                             uint64_t *ppkt_num,
                                             const uint8_t **pdest,

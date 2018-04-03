@@ -16,6 +16,8 @@ OBJECTS = \
 	header_compression.c \
 	map.c \
 	util.c \
+	tcp2_callbacks.c \
+	io_buf.c \
 	nghq.c
 
 HDRS = \
@@ -25,6 +27,9 @@ HDRS = \
 	header_compression.h \
 	map.h \
 	nghq_internal.h \
+	tcp2_callbacks.h \
+	multicast.h \
+	io_buf.h \
 	util.h
 
 libnghq_la_CFLAGS = -I$(top_srcdir)/include $(NGTCP2_CFLAGS) $(NGHTTP2_CFLAGS)

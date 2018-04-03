@@ -37,15 +37,8 @@ typedef struct nghq_map_ctx nghq_map_ctx;
 struct nghq_hdr_compression_ctx;
 typedef struct nghq_hdr_compression_ctx nghq_hdr_compression_ctx;
 
-/* A linked list of buffered frames that need sending/receiving. */
-typedef struct nghq_io_buf {
-  uint8_t *buf;
-  size_t  buf_len;
-  off_t   send_offset;
-  int     complete;
-
-  struct nghq_io_buf *next_buf;
-} nghq_io_buf;
+struct nghq_io_buf;
+typedef struct nghq_io_buf nghq_io_buf;
 
 typedef enum nghq_stream_state {
   STATE_OPEN,
@@ -73,14 +66,17 @@ struct nghq_session {
   /* ngtcp2 tracking */
   ngtcp2_conn*    ngtcp2_session;
 
+  uint64_t        connection_id;
+
   /* The highest seen stream IDs for both client requests and server pushes */
   uint64_t        highest_bidi_stream_id;
   uint64_t        highest_uni_stream_id;
 
+  /* The maximum allowed stream IDs for client requests and server pushes */
   uint64_t        max_open_requests;
   uint64_t        max_open_server_pushes;
 
-  uint64_t        last_push_promise;
+  uint64_t        next_push_promise;
   uint64_t        max_push_promise;
 
   /* Mode */
@@ -90,7 +86,8 @@ struct nghq_session {
     NGHQ_ROLE_MAX
   } role;
 
-  nghq_mode mode;
+  nghq_mode       mode;
+  int             handshake_complete;
 
   /* Application-specific stuff */
   nghq_callbacks  callbacks;
@@ -110,7 +107,7 @@ struct nghq_session {
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
-                           uint64_t* data, size_t datalen);
+                           const uint8_t* data, size_t datalen);
 
 int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
                            uint8_t* buf, size_t buflen);
@@ -122,6 +119,12 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
 
 int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id);
 
+int nghq_mcast_swallow (nghq_session* session, const ngtcp2_pkt_hd *hd,
+                        const ngtcp2_frame *fr);
+
+nghq_stream *nghq_stream_new (uint64_t stream_id);
+
+#define NGHQ_NO_PUSH 0x7FFFFFFFFFFFFFFF
 #define NGHQ_MULTICAST_MAX_UNI_STREAM_ID 0x3FFFFFFFFFFFFFFF
 #define NGHQ_MULTICAST_MAX_PUSH_ID 0x3FFFFFFFFFFFFFFF
 

@@ -1,19 +1,19 @@
 noinst_PROGRAMS =
 if HAVE_LIBEV
-noinst_PROGRAMS += example-client example-server
+noinst_PROGRAMS += multicast-receiver multicast-sender
 endif
 AM_LDFLAGS = $(top_builddir)/lib/libnghq.la
 AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir)/include
-example_client_LDADD = \
+multicast_receiver_LDADD = \
 	$(LIBEV_LIBS)
-example_client_CFLAGS = \
+multicast_receiver_CFLAGS = \
 	$(LIBEV_CFLAGS)
-example_client_SOURCES = \
-	example-client.c
-example_server_LDADD = \
+multicast_receiver_SOURCES = \
+	multicast-receiver.c
+multicast_sender_LDADD = \
 	$(LIBEV_LIBS)
-example_server_CFLAGS = \
+multicast_sender_CFLAGS = \
 	$(LIBEV_CFLAGS)
-example_server_SOURCES = \
-	example-server.c
+multicast_sender_SOURCES = \
+	multicast-sender.c
 
