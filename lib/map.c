@@ -87,9 +87,9 @@ int nghq_stream_id_map_add (nghq_map_ctx *ctx, uint64_t stream_id,
   return NGHQ_OK;
 }
 
-void* nghq_stream_id_map_find (nghq_map_ctx *ctx, uint64_t stream_id) {
+nghq_stream *nghq_stream_id_map_find (nghq_map_ctx *ctx, uint64_t stream_id) {
   _stream_id_list_node *find;
-  void* rv = NULL;
+  nghq_stream *rv = NULL;
 
   if (ctx == NULL) {
     return NULL;
@@ -155,15 +155,23 @@ nghq_stream *nghq_stream_id_map_iterator (nghq_map_ctx* ctx, nghq_stream *prev) 
   _stream_id_list_node *find;
   nghq_stream* rv = NULL;
 
-  if (ctx == NULL) {
+  if ((ctx == NULL) || (ctx->size == 0)){
     return NULL;
+  }
+
+  if (prev == NULL) {
+    return ctx->begin->stream_data;
   }
 
   find = ctx->begin;
 
   while (find != NULL) {
     if (find->stream_data == prev) {
-      rv = find->next->stream_data;
+      if (find->next == NULL) {
+        rv = NULL;
+      } else {
+        rv = find->next->stream_data;
+      }
       break;
     }
     find = find->next;
