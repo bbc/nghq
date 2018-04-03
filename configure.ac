@@ -58,6 +58,9 @@ AC_DEFINE_UNQUOTED([HAVE_LIBEV], [$HAVE_LIBEV], [If we have libev available])
 AC_SUBST([LIBEV_CFLAGS])
 AC_SUBST([LIBEV_LIBS])
 
+AC_ARG_ENABLE([debug], [Enable debugging output from the library],
+    AC_DEFINE([DEBUGOUT], 1, [Enable debugging output from the library]))
+
 AC_CONFIG_FILES([
   Makefile
   lib/libnghq.pc
