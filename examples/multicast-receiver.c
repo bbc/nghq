@@ -33,12 +33,13 @@ static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
     session_data *sdata = (session_data*)session_user_data;
     ssize_t result;
     result = recv(sdata->socket, data, len, 0);
-    if (result == EWOULDBLOCK) {
-        return NGHQ_OK;
-    }
     if (result < 0) {
+      if (errno != EWOULDBLOCK) {
         return NGHQ_ERROR;
+      }
+      return 0;
     }
+    printf("Received %zd bytes of data\n", result);
     return result;
 }
 
@@ -105,7 +106,7 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
                             const uint8_t *data, size_t len,
                             void *request_user_data)
 {
-    printf("Received %z bytes\n", len);
+    printf("Received %zu bytes\n", len);
 }
 
 static int on_push_cancel_cb (nghq_session *session, void *request_user_data)
@@ -157,7 +158,11 @@ static void recv_idle_cb (EV_P_ ev_idle *w, int revents)
 {
     session_data *data = (session_data*)(w->data);
     ev_idle_stop (EV_DEFAULT_UC_ w);
-    nghq_session_recv (data->session);
+    printf("Data waiting on socket, calling nghq_session_recv\n");
+    int rv = nghq_session_recv (data->session);
+    if (rv != NGHQ_OK) {
+      fprintf(stderr, "nghq_session_recv failed with %d\n", rv);
+    }
     ev_io_start (EV_DEFAULT_UC_ &data->socket_readable);
 }
 
