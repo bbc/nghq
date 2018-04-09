@@ -370,15 +370,21 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
 
     ngtcp2_conn_handshake_completed(session->ngtcp2_session);
 
-    result = ngtcp2_conn_update_early_keys(session->ngtcp2_session, NULL, 0,
-                                           NULL, 0);
+    result = ngtcp2_conn_update_early_keys(session->ngtcp2_session,
+                                           quic_mcast_magic,
+                                           LENGTH_QUIC_MCAST_MAGIC,
+                                           quic_mcast_magic,
+                                           LENGTH_QUIC_MCAST_MAGIC);
     if (result != 0) {
       ERROR("ngtcp2_conn_update_early_keys: %s\n",
             ngtcp2_strerror((int) result));
     }
 
-    result = ngtcp2_conn_update_tx_keys(session->ngtcp2_session, NULL, 0, NULL,
-                                        0);
+    result = ngtcp2_conn_update_tx_keys(session->ngtcp2_session,
+                                        quic_mcast_magic,
+                                        LENGTH_QUIC_MCAST_MAGIC,
+                                        quic_mcast_magic,
+                                        LENGTH_QUIC_MCAST_MAGIC);
     if (result != 0) {
       ERROR("ngtcp2_conn_update_tx_keys: %s\n", ngtcp2_strerror((int) result));
     }
@@ -396,8 +402,11 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
             ngtcp2_strerror((int) result));
     }
 
-    result = ngtcp2_conn_update_rx_keys(session->ngtcp2_session, NULL, 0, NULL,
-                                        0);
+    result = ngtcp2_conn_update_rx_keys(session->ngtcp2_session,
+                                        quic_mcast_magic,
+                                        LENGTH_QUIC_MCAST_MAGIC,
+                                        quic_mcast_magic,
+                                        LENGTH_QUIC_MCAST_MAGIC);
     if (result != 0) {
       ERROR("ngtcp2_conn_update_rx_keys: %s\n", ngtcp2_strerror((int) result));
     }
@@ -500,6 +509,7 @@ int nghq_session_recv (nghq_session *session) {
     free (pop);
 
     if (rv != 0) {
+      ERROR("ngtcp2_conn_recv returned error %s\n", ngtcp2_strerror(rv));
       if (rv == NGTCP2_ERR_TLS_DECRYPT) {
         return NGHQ_CRYPTO_ERROR;
       }
@@ -1231,7 +1241,7 @@ int nghq_mcast_swallow (nghq_session* session, const ngtcp2_pkt_hd *hd,
           (hd->type == NGTCP2_FRAME_RST_STREAM)) ||
       (hd->type == NGTCP2_FRAME_STREAM_BLOCKED) ||
       (hd->type == NGTCP2_FRAME_STREAM_ID_BLOCKED)) {
-    DEBUG("Dropping packet not allowed by quic-http-mcast: %d", hd->type);
+    DEBUG("Dropping packet not allowed by quic-http-mcast: %d\n", hd->type);
     return -1;
   }
   /* ACKs are a special case as we need to fake responses into ngtcp2 */
