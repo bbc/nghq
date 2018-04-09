@@ -120,19 +120,134 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
                                         const nghq_settings *settings,
                                         const nghq_transport_settings *transport,
                                         void *session_user_data) {
-  nghq_session *rv = _nghq_session_new_common (callbacks, settings, transport,
+  nghq_session *session = _nghq_session_new_common (callbacks, settings, transport,
                                                session_user_data);
+  int result;
 
-  if (rv != NULL) {
-    rv->role = NGHQ_ROLE_CLIENT;
+  if (session != NULL) {
+    session->role = NGHQ_ROLE_CLIENT;
   }
 
-  if (_nghq_start_session(rv) != NGHQ_OK) {
-    free (rv);
-    rv = NULL;
+  if (_nghq_start_session(session, transport) != NGHQ_OK) {
+    free (session);
+    return NULL;
   }
 
-  return rv;
+  ngtcp2_conn_callbacks tcp2_callbacks = {
+    nghq_transport_send_client_initial,
+    nghq_transport_send_client_handshake,
+    NULL,
+    NULL,
+    nghq_transport_recv_stream0_data,
+    nghq_transport_send_pkt,
+    nghq_transport_send_frame,
+    nghq_transport_recv_pkt,
+    nghq_transport_recv_frame,
+    nghq_transport_handshake_completed,
+    nghq_transport_recv_version_negotiation,
+    nghq_transport_encrypt,   /* TODO: Do we need to replace these with    */
+    nghq_transport_decrypt,   /* handshake-specific encrypt/decrypt funcs? */
+    nghq_transport_encrypt,
+    nghq_transport_decrypt,
+    nghq_transport_recv_stream_data,
+    nghq_transport_acked_stream_data_offset,
+    nghq_transport_stream_close,
+    nghq_transport_recv_stateless_reset,
+    nghq_transport_recv_server_stateless_retry,
+    nghq_transport_extend_max_stream_id,
+  };
+
+  srand(time(NULL));
+  uint64_t init_conn_id = rand64();
+
+  ngtcp2_settings tcp2_settings;
+  tcp2_settings.max_stream_data = 256 * 1024;
+  tcp2_settings.max_data = 1 * 1024 * 1024;
+  tcp2_settings.max_stream_id_bidi = session->max_open_requests;
+  tcp2_settings.max_stream_id_uni = session->max_open_server_pushes;
+  tcp2_settings.idle_timeout = transport->idle_timeout;
+  tcp2_settings.omit_connection_id = 0;
+  tcp2_settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
+  tcp2_settings.ack_delay_exponent = NGTCP2_DEFAULT_ACK_DELAY_EXPONENT;
+
+  result = ngtcp2_conn_client_new(&session->ngtcp2_session, init_conn_id,
+                                  NGTCP2_PROTO_VER_D9, &tcp2_callbacks,
+                                  &tcp2_settings, (void *) session);
+  if (result != 0) {
+    ERROR("ngtcp2_conn_client_new failed with error %d", result);
+    goto nghq_client_fail_session;
+  }
+
+  DEBUG("Created new client ngtcp2_conn: %p\n", (void *) session->ngtcp2_session);
+
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    uint8_t *buf = malloc(64);
+    nghq_io_buf_new(&session->send_buf, buf, 64);
+    uint8_t *init_buf = malloc(session->transport_settings.max_packet_size);
+    ngtcp2_conn_set_handshake_tx_keys(session->ngtcp2_session,
+                                      quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC,
+                                      quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
+    ngtcp2_conn_set_handshake_rx_keys(session->ngtcp2_session,
+                                      quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC,
+                                      quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
+
+    result = ngtcp2_conn_write_pkt(session->ngtcp2_session,
+                                   init_buf,
+                                   session->transport_settings.max_packet_size,
+                                   get_timestamp_now());
+
+    if (result < 0) {
+      ERROR("Failed to fake writing the client initial packet: %d %s\n",
+            result, ngtcp2_strerror(result));
+      goto nghq_client_fail_conn;
+    }
+
+    /* Fake handshake for multicast */
+    result = ngtcp2_conn_recv(session->ngtcp2_session,
+                              fake_server_handshake_packet,
+                              LENGTH_SERVER_HANDSHAKE_PACKET,
+                              get_timestamp_now());
+
+    if (result < 0) {
+      ERROR("Failed to submit fake server handshake to client instance: %s\n",
+            ngtcp2_strerror(result));
+      goto nghq_client_fail_conn;
+    }
+
+    ngtcp2_conn_handshake_completed(session->ngtcp2_session);
+
+    result = ngtcp2_conn_update_tx_keys(session->ngtcp2_session,
+                                        quic_mcast_magic,
+                                        LENGTH_QUIC_MCAST_MAGIC,
+                                        quic_mcast_magic,
+                                        LENGTH_QUIC_MCAST_MAGIC);
+    if (result != 0) {
+      ERROR("ngtcp2_conn_update_tx_keys: %s\n", ngtcp2_strerror((int) result));
+    }
+
+    result = ngtcp2_conn_update_rx_keys(session->ngtcp2_session,
+                                        quic_mcast_magic,
+                                        LENGTH_QUIC_MCAST_MAGIC,
+                                        quic_mcast_magic,
+                                        LENGTH_QUIC_MCAST_MAGIC);
+    if (result != 0) {
+      ERROR("ngtcp2_conn_update_rx_keys: %s\n", ngtcp2_strerror((int) result));
+    }
+  }
+
+  session->connection_id =
+      ngtcp2_conn_negotiated_conn_id(session->ngtcp2_session);
+
+  DEBUG("Negotiated connection ID: %lu\n", session->connection_id);
+
+  return session;
+
+nghq_client_fail_conn:
+  ngtcp2_conn_del(session->ngtcp2_session);
+nghq_client_fail_session:
+  free(session);
+
+  return NULL;
 }
 
 nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,

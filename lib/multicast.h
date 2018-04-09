@@ -202,10 +202,40 @@ static const uint8_t fake_client_initial_packet[] = {
 #define LENGTH_INITIAL_PACKET 1200
 
 static const uint8_t fake_server_handshake_packet[] = {
-    0x00
+    0xfd,     /* Long header | Handshake packet */
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x01, /* connection id = 1 */
+    0xff, 0x00, 0x00, 0x09, /* version = 0xff000009 */
+    0x67, 0x45, 0x23, 0x01, /* Packet number = 0x01234567 */
+    0x12,     /* Stream frame with length */
+    0x00,       /* Stream ID = 0 */
+    0x40, 0x45,       /* Length = 69 */
+    /*** Transport Parameters ***/
+    0xff, 0x00, 0x00, 0x09, /* "Negotiated" version: draft-09 */
+    0x04,                     /* Length of Supported versions: 4 bytes/1 ver */
+    0xff, 0x00, 0x00, 0x00,   /* Supported version 1: draft-09 */
+    0x00, 0x3a,   /* Length of Parameters: 58 */
+    0x00, 0x00,     /* initial_max_stream_data */
+    0x00, 0x04, 0x00, 0x04, 0x00, 0x00, /* 32-bit, 262144 */
+    0x00, 0x01,     /* initial_max_data */
+    0x00, 0x04, 0x00, 0x10, 0x00, 0x00, /* 32-bit, 1048576 */
+    0x00, 0x03,     /* idle_timeout */
+    0x00, 0x02, 0x00, 0x3c,             /* 16-bit, 30 */
+    0x00, 0x06,     /* Stateless reset token */
+    0x00, 0x10,       /* 16 bytes */
+    0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */
+    0x73, 0x74, 0x20, 0x6d, 0x61, 0x67, 0x69, 0x63,
+    0x00, 0x02,     /* initial_max_stream_id_bidi */
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, /* 32-bit, 4 */
+    0x00, 0x08,     /* initial_max_stream_id_uni */
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x02, /* 32-bit, 2 */
+    /*** End Transport Parameters ***/
+    0x12,     /* Stream frame with length */
+    0x03,       /* Stream ID = 3, Server-initiated HTTP control stream */
+    0x00,       /* Length = 0 */ /* TODO: Add SETTINGS frame */
 };
 
-#define LENGTH_SERVER_HANDSHAKE_PACKET 88
+#define LENGTH_SERVER_HANDSHAKE_PACKET 93
 
 static const uint8_t fake_client_stream_4_packet[] = {
     0x1d, /* Short header | ConnID present | Key Phase 0 | PktNum 4 octets*/
@@ -220,6 +250,13 @@ static const uint8_t fake_client_stream_4_packet[] = {
 };
 
 #define LENGTH_CLIENT_STREAM_4_PACKET 32
+
+static const uint8_t quic_mcast_magic[] = {
+    0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */
+    0x73, 0x74, 0x20, 0x6d, 0x61, 0x67, 0x69, 0x63, 0x00
+};
+
+#define LENGTH_QUIC_MCAST_MAGIC 17
 
 #define INITIAL_MCAST_PACKET_NUMBER 0x01234567
 

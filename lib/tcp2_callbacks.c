@@ -35,7 +35,24 @@ ssize_t nghq_transport_send_client_initial (ngtcp2_conn *conn, uint32_t flags,
                                             void *user_data) {
   DEBUG("nghq_transport_send_client_initial(%p, %x, %lu, %p, %p)\n",
         (void *)conn, flags, *ppkt_num, (void *) pdest, user_data);
-  return 0;
+  nghq_session *session = (nghq_session *) user_data;
+
+  ngtcp2_transport_params params;
+  ngtcp2_conn_get_local_transport_params(conn, &params,
+      NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO);
+
+  params.initial_max_stream_id_uni = 0x3FFFFFFF;
+  params.initial_max_stream_id_bidi = 4;
+
+  ngtcp2_encode_transport_params(session->send_buf->buf,
+                                 session->send_buf->buf_len,
+                                 NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO,
+                                 &params);
+
+  *ppkt_num = 0;
+  const uint8_t *c_buf = session->send_buf->buf;
+  *pdest = c_buf;
+  return session->send_buf->buf_len;
 }
 
 ssize_t nghq_transport_send_client_handshake (ngtcp2_conn *conn, uint32_t flags,
@@ -43,7 +60,11 @@ ssize_t nghq_transport_send_client_handshake (ngtcp2_conn *conn, uint32_t flags,
                                               void *user_data) {
   DEBUG("nghq_transport_send_client_handshake(%p, %x, %p, %p)\n", (void *) conn,
         flags, (void *) pdest, user_data);
-  return 0;
+  nghq_session *session = (nghq_session *) user_data;
+
+  ngtcp2_conn_handshake_completed(conn);
+
+  return session->send_buf->buf_len;
 }
 
 int nghq_transport_recv_client_initial (ngtcp2_conn *conn, uint64_t conn_id,
