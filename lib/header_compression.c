@@ -39,30 +39,30 @@ struct _temp_list {
   struct _temp_list *next;
 };
 
-int _create_header (struct _temp_list *node, uint8_t* name, size_t namelen,
+int _create_header (struct _temp_list **node, uint8_t* name, size_t namelen,
                      uint8_t* value, size_t valuelen) {
-  node = (struct _temp_list *) malloc (sizeof(struct _temp_list));
-  if (node == NULL) {
+  *node = (struct _temp_list *) malloc (sizeof(struct _temp_list));
+  if (*node == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
-  node->header = (nghq_header *) malloc (sizeof(nghq_header *));
-  if (node->header == NULL) {
+  (*node)->header = (nghq_header *) malloc (sizeof(nghq_header *));
+  if ((*node)->header == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
 
-  node->header->name = (uint8_t *) malloc (namelen);
-  if (node->header->name == NULL) {
+  (*node)->header->name = (uint8_t *) malloc (namelen);
+  if ((*node)->header->name == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
-  node->header->name_len = namelen;
-  memcpy(node->header->name, name, namelen);
+  (*node)->header->name_len = namelen;
+  memcpy((*node)->header->name, name, namelen);
 
-  node->header->value = (uint8_t *) malloc (valuelen);
-  if (node->header->value == NULL) {
+  (*node)->header->value = (uint8_t *) malloc (valuelen);
+  if ((*node)->header->value == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
-  node->header->value_len = valuelen;
-  memcpy(node->header->value, value, valuelen);
+  (*node)->header->value_len = valuelen;
+  memcpy((*node)->header->value, value, valuelen);
 
   return NGHQ_OK;
 }
@@ -81,7 +81,8 @@ int nghq_init_hdr_compression_ctx(nghq_hdr_compression_ctx **ctx) {
 ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
                           size_t block_len, int final_block,
                           nghq_header ***hdrs, size_t* num_hdrs) {
-  int inflate_flags, i, num_headers = 0;
+  int inflate_flags, i;
+  *num_hdrs = 0;
   //ssize_t remaining = block_len;
 
   /*
@@ -120,7 +121,7 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
     if (inflate_flags & NGHTTP2_HD_INFLATE_EMIT) {
       DEBUG("Inflated header - %s: %s\n", nv_out.name, nv_out.value);
       if (list == NULL) {
-        int rv = _create_header(list, nv_out.name, nv_out.namelen, nv_out.value,
+        int rv = _create_header(&list, nv_out.name, nv_out.namelen, nv_out.value,
                                 nv_out.valuelen);
         if (rv != NGHQ_OK) {
           ERROR("Failed to create header!\n");
@@ -129,7 +130,7 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
         end_list = list;
         end_list->next = NULL;
       } else {
-        int rv = _create_header(end_list->next, nv_out.name, nv_out.namelen,
+        int rv = _create_header(&end_list->next, nv_out.name, nv_out.namelen,
                                 nv_out.value, nv_out.valuelen);
         if (rv != NGHQ_OK) {
           ERROR("Failed to create header!\n");
@@ -137,7 +138,7 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
         }
         end_list = end_list->next;
       }
-      num_headers++;
+      (*num_hdrs)++;
     }
     if ((inflate_flags & NGHTTP2_HD_INFLATE_EMIT) == 0 && block_len == 0) {
       break;
@@ -148,13 +149,13 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
     nghttp2_hd_inflate_end_headers(ctx->inflater);
   }
 
-  *hdrs = (nghq_header**) malloc (num_headers * sizeof(nghq_header*));
+  *hdrs = (nghq_header**) malloc (*num_hdrs * sizeof(nghq_header*));
 
   /*
    * Fill the array of headers with the headers we created in the linked list,
    * and delete the linked list as we go.
    */
-  for (i = 0; i < num_headers; i++) {
+  for (i = 0; i < *num_hdrs; i++) {
     struct _temp_list *last = NULL;
     (*hdrs)[i] = list->header;
     last = list;
