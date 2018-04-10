@@ -108,6 +108,7 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
                             void *request_user_data)
 {
     printf("Received %zu bytes\n", len);
+    printf("Body: %s\n", data);
 }
 
 static int on_push_cancel_cb (nghq_session *session, void *request_user_data)

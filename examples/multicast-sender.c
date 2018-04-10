@@ -212,6 +212,7 @@ int main(int argc, char *argv[])
     struct sockaddr_in mcast_addr;
     int promise_request_user_data;
     int result;
+    int i;
 
     /* Initialise libev */
     ev_default_loop (0);
@@ -239,6 +240,10 @@ int main(int argc, char *argv[])
     ev_io_start (EV_DEFAULT_UC_ &g_server_session.socket_writable);
 
     /* Make the push promise */
+    printf("Submitting Push Promise with headers:\n");
+    for (i = 0; i < sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]); i++) {
+      printf("\t%s: %s\n", g_request_hdrs[i]->name, g_request_hdrs[i]->value);
+    }
     result = nghq_submit_push_promise (g_server_session.session, NULL,
 		     g_request_hdrs,
                      sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
@@ -246,12 +251,17 @@ int main(int argc, char *argv[])
 
     ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
 
+    printf("Starting server push with headers:\n");
+    for (i = 0; i < sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]); i++) {
+      printf("\t%s: %s\n", g_response_hdrs[i]->name, g_response_hdrs[i]->value);
+    }
     result = nghq_feed_headers (g_server_session.session, g_response_hdrs,
 		     sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]),
 		     &promise_request_user_data);
 
     ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
 
+    printf("Payload for server push: %s\n", g_response);
     result = nghq_feed_payload_data (g_server_session.session, g_response,
                      sizeof(g_response), &promise_request_user_data);
 
