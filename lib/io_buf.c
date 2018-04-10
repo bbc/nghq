@@ -43,15 +43,16 @@ int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen) {
 }
 
 void nghq_io_buf_push (nghq_io_buf** list, nghq_io_buf* push) {
-  if (*list == NULL) {
+  nghq_io_buf *p = *list;
+  if (p == NULL) {
     *list = push;
     push->next_buf = NULL;
     return;
   }
-  while ((*list)->next_buf != NULL) {
-    *list = (*list)->next_buf;
+  while (p->next_buf != NULL) {
+    p = p->next_buf;
   }
-  (*list)->next_buf = push;
+  p->next_buf = push;
   push->next_buf = NULL;
 }
 
