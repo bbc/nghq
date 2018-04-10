@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 
 #include <ev.h>
@@ -173,16 +174,21 @@ int main(int argc, char *argv[])
     struct sockaddr_in src_addr;
     struct group_source_req gsr;
 
+    if (argc < 3) {
+      fprintf(stderr, "Usage: %s [mcast-grp] [src-addr]\n", argv[0]);
+      return -1;
+    }
+
     /* Initialise libev */
     ev_default_loop (0);
 
     /* make the connection */
     mcast_addr.sin_family = AF_INET;
-    mcast_addr.sin_addr.s_addr = htonl (0xe8dd0001); /* 232.221.0.1 */
+    mcast_addr.sin_addr.s_addr = inet_addr (argv[1]);
     mcast_addr.sin_port = htons(2000);
 
     src_addr.sin_family = AF_INET;
-    src_addr.sin_addr.s_addr = htonl (0x84b98c23); /* 132.185.140.35 */
+    src_addr.sin_addr.s_addr = inet_addr (argv[2]);
     src_addr.sin_port = 0;
 
     gsr.gsr_interface = 0;
