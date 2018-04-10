@@ -26,6 +26,7 @@
 #include <string.h>
 
 #include "header_compression.h"
+#include "debug.h"
 #include <nghttp2/nghttp2.h>
 
 struct nghq_hdr_compression_ctx {
@@ -108,6 +109,8 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
                                                block_len, final_block);
 
     if (processed < 0) {
+      ERROR("nghttp2_hd_inflate_hd2 failed: %s\n",
+            nghttp2_strerror(processed));
       return NGHQ_HDR_COMPRESS_FAILURE;
     }
 
@@ -115,10 +118,12 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
     block_len -= (uint8_t) processed;
 
     if (inflate_flags & NGHTTP2_HD_INFLATE_EMIT) {
+      DEBUG("Inflated header - %s: %s\n", nv_out.name, nv_out.value);
       if (list == NULL) {
         int rv = _create_header(list, nv_out.name, nv_out.namelen, nv_out.value,
                                 nv_out.valuelen);
         if (rv != NGHQ_OK) {
+          ERROR("Failed to create header!\n");
           return rv;
         }
         end_list = list;
@@ -127,6 +132,7 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
         int rv = _create_header(end_list->next, nv_out.name, nv_out.namelen,
                                 nv_out.value, nv_out.valuelen);
         if (rv != NGHQ_OK) {
+          ERROR("Failed to create header!\n");
           return rv;
         }
         end_list = end_list->next;
@@ -177,6 +183,7 @@ int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
   }
 
   for (i = 0; i < num_hdrs; i++) {
+    DEBUG("Compressing header - %s: %s\n", hdrs[i]->name, hdrs[i]->value);
     nva[i].name = hdrs[i]->name;
     nva[i].namelen = hdrs[i]->name_len;
     nva[i].value = hdrs[i]->value;
