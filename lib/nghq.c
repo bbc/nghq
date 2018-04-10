@@ -53,7 +53,7 @@ nghq_stream * nghq_stream_init() {
   stream->recv_buf = NULL;
   stream->buf_idx = 0;
   stream->tx_offset = 0;
-  stream->user_data = NULL;
+  stream->user_data = (void *) &stream->stream_id; /*Guaranteed to be unique!*/
   stream->priority = 0;
   stream->recv_state = STATE_OPEN;
   stream->send_state = STATE_OPEN;
@@ -496,7 +496,7 @@ int nghq_session_recv (nghq_session *session) {
       /* no more data to read */
       recv = 0;
     } else {
-      nghq_io_buf_new(&session->recv_buf, buf, buflen);
+      nghq_io_buf_new(&session->recv_buf, buf, (size_t) socket_rv);
     }
   }
 
@@ -951,181 +951,211 @@ int nghq_set_max_promises (nghq_session* session, uint64_t max_push) {
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
                            const uint8_t* data, size_t datalen) {
   if (stream->recv_buf == NULL) {
-    nghq_io_buf_new(&stream->recv_buf, NULL, 0);
+    uint8_t *buf = malloc (datalen);
+    if (buf == NULL) {
+      return NGHQ_OUT_OF_MEMORY;
+    }
+    nghq_io_buf_new(&stream->recv_buf, buf, 0);
+  } else {
+    errno = 0;
+    stream->recv_buf->buf = (uint8_t *)
+        realloc(stream->recv_buf->buf, stream->recv_buf->buf_len + datalen);
+    if (errno == ENOMEM) {
+      return NGHQ_OUT_OF_MEMORY;
+    }
   }
 
-  stream->recv_buf->buf = (uint8_t *) realloc(stream->recv_buf->buf,
-                                              stream->recv_buf->buf_len + datalen);
-
   memcpy(stream->recv_buf->buf + stream->recv_buf->buf_len, data, datalen);
+  stream->recv_buf->buf_len += datalen;
 
-  while (stream->recv_buf != NULL) {
-    nghq_frame_type frame_type;
-    /*
-     * Size is the size of the first frame in the queue to be processed for this
-     * stream.
-     */
-    ssize_t size = parse_frames (stream->recv_buf->buf,
-                                 stream->recv_buf->buf_len, &frame_type);
-    ssize_t to_process = 0;
+  nghq_frame_type frame_type;
+  if (SERVER_PUSH_STREAM(stream->stream_id)) {
 
-    switch (frame_type) {
-      case NGHQ_FRAME_TYPE_DATA: {
-        uint8_t* outbuf = NULL;
-        size_t outbuflen = 0;
-        to_process = parse_data_frame (stream->recv_buf->buf,
-                                       stream->recv_buf->buf_len, &outbuf,
-                                       &outbuflen);
+  }
+  /*
+   * Size is the size of the first frame in the queue to be processed for this
+   * stream.
+   */
+  ssize_t size = parse_frames (stream->recv_buf->buf,
+                               stream->recv_buf->buf_len, &frame_type);
+  ssize_t to_process = 0;
 
-        if (outbuf != NULL) {
-          session->callbacks.on_data_recv_callback(session, 0, outbuf,
-                                                    outbuflen,
-                                                    stream->user_data);
-        }
-        break;
+  switch (frame_type) {
+    case NGHQ_FRAME_TYPE_DATA: {
+      uint8_t* outbuf = NULL;
+      size_t outbuflen = 0;
+      to_process = parse_data_frame (stream->recv_buf->buf,
+                                     stream->recv_buf->buf_len, &outbuf,
+                                     &outbuflen);
+
+      if (outbuf != NULL) {
+        session->callbacks.on_data_recv_callback(session, 0, outbuf,
+                                                  outbuflen,
+                                                  stream->user_data);
       }
-      case NGHQ_FRAME_TYPE_HEADERS: {
-        nghq_header** hdrs = NULL;
-        size_t num_hdrs;
-        to_process = parse_headers_frame (session->hdr_ctx,
-                                          stream->recv_buf->buf,
-                                          stream->recv_buf->buf_len, &hdrs,
-                                          &num_hdrs);
+      break;
+    }
+    case NGHQ_FRAME_TYPE_HEADERS: {
+      nghq_header** hdrs = NULL;
+      size_t num_hdrs;
+      switch (stream->recv_state) {
+        case STATE_OPEN:
+          session->callbacks.on_begin_headers_callback(session,
+                                                       NGHQ_HT_HEADERS,
+                                                       session->session_user_data,
+                                                       stream->user_data);
+          stream->recv_state = STATE_HDRS;
+          break;
+        case STATE_HDRS:
+          break;
+        case STATE_BODY:
+          stream->recv_state = STATE_TRAILERS;
+        case STATE_TRAILERS:
+          break;
+        default:
+          ERROR("Received HEADERS for stream %lu, but receive state is done!\n",
+                stream->stream_id);
+      }
+      to_process = parse_headers_frame (session->hdr_ctx,
+                                        stream->recv_buf->buf,
+                                        stream->recv_buf->buf_len, &hdrs,
+                                        &num_hdrs);
 
+      if (hdrs != NULL) {
+        int i;
+
+        if (stream->started == 0) {
+          session->callbacks.on_begin_headers_callback(session,
+              NGHQ_HT_HEADERS, session->session_user_data, stream->user_data);
+        }
+
+        for (i = 0; i < num_hdrs; i++) {
+          uint8_t flags = 0;
+          if (stream->recv_state >= STATE_HDRS) {
+            flags += NGHQ_HEADERS_FLAGS_TRAILERS;
+          }
+          session->callbacks.on_headers_callback (session, flags, hdrs[i],
+                                                   stream->user_data);
+        }
+      }
+      break;
+    }
+    case NGHQ_FRAME_TYPE_PRIORITY: {
+      /* TODO */
+      uint8_t flags;
+      uint64_t request_id;
+      uint64_t dependency_id;
+      uint8_t weight;
+
+      parse_priority_frame (stream->recv_buf->buf, stream->recv_buf->buf_len,
+                            &flags, &request_id, &dependency_id, &weight);
+
+      break;
+    }
+    case NGHQ_FRAME_TYPE_CANCEL_PUSH: {
+      uint64_t push_id;
+      parse_cancel_push_frame (stream->recv_buf->buf,
+                               stream->recv_buf->buf_len, &push_id);
+
+      nghq_stream_id_map_remove(session->promises, push_id);
+
+      break;
+    }
+    case NGHQ_FRAME_TYPE_SETTINGS: {
+      nghq_settings *new_settings;
+
+      parse_settings_frame (stream->recv_buf->buf, stream->recv_buf->buf_len,
+                            &new_settings);
+
+      /* err... TODO? */
+      free (new_settings);
+      size = 0;
+      break;
+    }
+    case NGHQ_FRAME_TYPE_PUSH_PROMISE: {
+      nghq_header** hdrs = NULL;
+      size_t num_hdrs;
+      uint64_t push_id;
+
+      to_process = parse_push_promise_frame (session->hdr_ctx,
+                                             stream->recv_buf->buf,
+                                             stream->recv_buf->buf_len,
+                                             &push_id, &hdrs, &num_hdrs);
+
+      if (to_process < stream->recv_buf->buf_len) {
+        nghq_stream* new_promised_stream = nghq_stream_init();
+        new_promised_stream->push_id = push_id;
+        new_promised_stream->user_data = &new_promised_stream->push_id;
+        nghq_stream_id_map_add(session->promises, push_id,
+                               new_promised_stream);
         if (hdrs != NULL) {
           int i;
 
-          if (stream->started == 0) {
-            session->callbacks.on_begin_headers_callback(session,
-                NGHQ_HT_HEADERS, session->session_user_data, stream->user_data);
-          }
+          session->callbacks.on_begin_headers_callback(session,
+              NGHQ_HT_PUSH_PROMISE, session->session_user_data,
+              new_promised_stream->user_data);
+          new_promised_stream->recv_state = STATE_HDRS;
 
           for (i = 0; i < num_hdrs; i++) {
             uint8_t flags = 0;
-            if (stream->recv_state >= STATE_HDRS) {
-              flags += NGHQ_HEADERS_FLAGS_TRAILERS;
-            }
             session->callbacks.on_headers_callback (session, flags, hdrs[i],
-                                                     stream->user_data);
+                                             new_promised_stream->user_data);
           }
         }
-        break;
       }
-      case NGHQ_FRAME_TYPE_PRIORITY: {
-        /* TODO */
-        uint8_t flags;
-        uint64_t request_id;
-        uint64_t dependency_id;
-        uint8_t weight;
 
-        parse_priority_frame (stream->recv_buf->buf, stream->recv_buf->buf_len,
-                              &flags, &request_id, &dependency_id, &weight);
-
-        break;
-      }
-      case NGHQ_FRAME_TYPE_CANCEL_PUSH: {
-        uint64_t push_id;
-        parse_cancel_push_frame (stream->recv_buf->buf,
-                                 stream->recv_buf->buf_len, &push_id);
-
-        nghq_stream_id_map_remove(session->promises, push_id);
-
-        break;
-      }
-      case NGHQ_FRAME_TYPE_SETTINGS: {
-        nghq_settings *new_settings;
-
-        parse_settings_frame (stream->recv_buf->buf, stream->recv_buf->buf_len,
-                              &new_settings);
-
-        /* err... TODO? */
-        free (new_settings);
-        size = 0;
-        break;
-      }
-      case NGHQ_FRAME_TYPE_PUSH_PROMISE: {
-        nghq_header** hdrs = NULL;
-        size_t num_hdrs;
-        uint64_t push_id;
-
-        to_process = parse_push_promise_frame (session->hdr_ctx,
-                                               stream->recv_buf->buf,
-                                               stream->recv_buf->buf_len,
-                                               &push_id, &hdrs, &num_hdrs);
-
-        if (to_process < stream->recv_buf->buf_len) {
-          nghq_stream* new_promised_stream = nghq_stream_init();
-          new_promised_stream->push_id = push_id;
-          new_promised_stream->user_data = &new_promised_stream->push_id;
-          nghq_stream_id_map_add(session->promises, push_id,
-                                 new_promised_stream);
-          if (hdrs != NULL) {
-            int i;
-
-            session->callbacks.on_begin_headers_callback(session,
-                NGHQ_HT_PUSH_PROMISE, session->session_user_data,
-                new_promised_stream->user_data);
-
-            for (i = 0; i < num_hdrs; i++) {
-              uint8_t flags = 0;
-              session->callbacks.on_headers_callback (session, flags, hdrs[i],
-                                               new_promised_stream->user_data);
-            }
-          }
-        }
-
-        break;
-      }
-      case NGHQ_FRAME_TYPE_GOAWAY: {
-        /* TODO */
-        uint64_t last_stream_id;
-
-        parse_goaway_frame (stream->recv_buf->buf, stream->recv_buf->buf_len,
-                            &last_stream_id);
-        break;
-      }
-      case NGHQ_FRAME_TYPE_MAX_PUSH_ID: {
-        uint64_t max_push_id;
-
-        parse_max_push_id_frame (stream->recv_buf->buf,
-                                 stream->recv_buf->buf_len, &max_push_id);
-
-        /* TODO: If this is invalid, send an error to remote peer */
-        if (session->role != NGHQ_ROLE_SERVER) {
-          break;
-        }
-
-        if (session->max_push_promise > max_push_id) {
-          break;
-        }
-
-        session->max_push_promise = max_push_id;
-
-        break;
-      }
-      default:
-        /* Unknown frame type! */
-        return NGHQ_INTERNAL_ERROR;
+      break;
     }
+    case NGHQ_FRAME_TYPE_GOAWAY: {
+      /* TODO */
+      uint64_t last_stream_id;
 
-    if (to_process == 0) {
-      if (size == stream->recv_buf->buf_len) {
-        nghq_io_buf_pop (&stream->recv_buf);
-      }
-      else if (size < stream->recv_buf->buf_len) {
-        /* Shorten the buffer in order to pick up the next frame */
-        size_t left = stream->recv_buf->buf_len - size;
-        uint8_t* tmp = (uint8_t *) malloc (left);
-        if (tmp == NULL) {
-          return NGHQ_OUT_OF_MEMORY;
-        }
-        memcpy (tmp, stream->recv_buf->buf + size, left);
-        free (stream->recv_buf->buf);
-        stream->recv_buf->buf = tmp;
-      }
-    } else if (to_process < 0) {
-      return to_process;
+      parse_goaway_frame (stream->recv_buf->buf, stream->recv_buf->buf_len,
+                          &last_stream_id);
+      break;
     }
+    case NGHQ_FRAME_TYPE_MAX_PUSH_ID: {
+      uint64_t max_push_id;
+
+      parse_max_push_id_frame (stream->recv_buf->buf,
+                               stream->recv_buf->buf_len, &max_push_id);
+
+      /* TODO: If this is invalid, send an error to remote peer */
+      if (session->role != NGHQ_ROLE_SERVER) {
+        break;
+      }
+
+      if (session->max_push_promise > max_push_id) {
+        break;
+      }
+
+      session->max_push_promise = max_push_id;
+
+      break;
+    }
+    default:
+      /* Unknown frame type! */
+      ERROR("Unknown frame type 0x%x\n", frame_type);
+      return NGHQ_INTERNAL_ERROR;
+  }
+
+  if (to_process == 0) {
+    if (size == stream->recv_buf->buf_len) {
+      nghq_io_buf_pop (&stream->recv_buf);
+    }
+    else if (size < stream->recv_buf->buf_len) {
+      /* Shorten the buffer in order to pick up the next frame */
+      size_t left = stream->recv_buf->buf_len - size;
+      uint8_t* tmp = (uint8_t *) malloc (left);
+      if (tmp == NULL) {
+        return NGHQ_OUT_OF_MEMORY;
+      }
+      memcpy (tmp, stream->recv_buf->buf + size, left);
+      free (stream->recv_buf->buf);
+      stream->recv_buf->buf = tmp;
+    }
+  } else if (to_process < 0) {
+    return to_process;
   }
 
   return NGHQ_OK;

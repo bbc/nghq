@@ -48,6 +48,9 @@ typedef enum nghq_stream_state {
   STATE_DONE
 } nghq_stream_state;
 
+#define CLIENT_REQUEST_STREAM(x) ((x % 4) == 0)
+#define SERVER_PUSH_STREAM(x) ((x % 4) == 3)
+
 typedef struct {
   uint64_t      push_id;
   uint64_t      stream_id;

@@ -28,6 +28,7 @@
 #include "debug.h"
 #include "io_buf.h"
 #include "map.h"
+#include "util.h"
 
 ssize_t nghq_transport_send_client_initial (ngtcp2_conn *conn, uint32_t flags,
                                             uint64_t *ppkt_num,
@@ -267,20 +268,40 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
          (void *) conn, stream_id, fin, datalen, user_data, stream_user_data);
   nghq_session* session = (nghq_session *) user_data;
   nghq_stream* stream = nghq_stream_id_map_find(session->transfers, stream_id);
+  size_t offset = 0;
   if (stream == NULL) {
-    /* New stream time! */
-    DEBUG("Seen start of new stream %lu\n", stream_id);
-    stream = nghq_stream_new(stream_id);
-    if (stream == NULL) {
-      return NGTCP2_ERR_NOMEM;
+    if (CLIENT_REQUEST_STREAM(stream_id)) {
+      /* New stream time! */
+      DEBUG("Seen start of new stream %lu\n", stream_id);
+      stream = nghq_stream_new(stream_id);
+      if (stream == NULL) {
+        return NGTCP2_ERR_NOMEM;
+      }
+      nghq_stream_id_map_add(session->transfers, stream_id, stream);
+    } else if (SERVER_PUSH_STREAM(stream_id)) {
+      /* Find the server push stream! */
+      uint64_t push_id = _get_varlen_int(data, &offset);
+      stream = nghq_stream_id_map_find(session->promises, push_id);
+      if (stream == NULL) {
+        ERROR("Received new server push stream %lu, but Push ID %lu has not "
+              "been previously promised, or has already been started!\n",
+              stream_id, push_id);
+        return NGTCP2_ERR_CALLBACK_FAILURE;
+      }
+      nghq_stream_id_map_remove(session->promises, push_id);
+      stream->stream_id = stream_id;
+      nghq_stream_id_map_add(session->transfers, stream_id, stream);
+      DEBUG("New server push stream %lu starts push promise %lu\n",
+            stream_id, push_id);
     }
-    nghq_stream_id_map_add(session->transfers, stream_id, stream);
   }
 
   if (stream->stream_id != stream_id) {
     abort();
   }
-  return nghq_recv_stream_data(session, stream, data, datalen);
+
+  return nghq_recv_stream_data(session, stream, data + offset,
+                               datalen - offset);
 }
 
 int nghq_transport_stream_close (ngtcp2_conn *conn, uint64_t stream_id,
