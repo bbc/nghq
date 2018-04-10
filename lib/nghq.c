@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <time.h>
+#include <errno.h>
 
 #include "nghq/nghq.h"
 #include "nghq_internal.h"
@@ -1264,3 +1265,34 @@ nghq_stream *nghq_stream_new (uint64_t stream_id) {
   stream->stream_id = stream_id;
   return stream;
 }
+
+nghq_stream *nghq_req_stream_new(nghq_session* session) {
+  int result;
+  nghq_stream *stream = nghq_stream_init();
+  if (stream == NULL) {
+    return NULL;
+  }
+
+  result = ngtcp2_conn_open_bidi_stream(session->ngtcp2_session,
+                                        &stream->stream_id, stream);
+
+  if (result != 0) {
+    ERROR("ngtcp2_conn_open_bidi_stream failed with %s\n",
+          ngtcp2_strerror(result));
+    free (stream);
+    return NULL;
+  }
+
+  result = nghq_stream_id_map_add (session->transfers, stream->stream_id,
+                                   stream);
+  if (result != 0) {
+    ERROR("Failed to add new stream %lu to map\n", stream->stream_id);
+    ngtcp2_conn_shutdown_stream(session->ngtcp2_session, stream->stream_id,
+                                0x01); /* Internal Error code */
+    free (stream);
+    return NULL;
+  }
+
+  return stream;
+}
+

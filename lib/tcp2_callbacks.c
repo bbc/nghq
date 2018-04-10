@@ -148,6 +148,12 @@ int nghq_transport_recv_stream0_data (ngtcp2_conn *conn, const uint8_t *data,
     if (rv != 0) {
       return NGTCP2_ERR_CALLBACK_FAILURE;
     }
+  } else if (session->role == NGHQ_ROLE_CLIENT) {
+    rv = ngtcp2_conn_set_remote_transport_params(session->ngtcp2_session,
+           NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS, &params);
+    if (rv != 0) {
+      return NGTCP2_ERR_CALLBACK_FAILURE;
+    }
   }
   return 0;
 }
@@ -193,6 +199,12 @@ int nghq_transport_recv_frame (ngtcp2_conn *conn, const ngtcp2_pkt_hd *hd,
 int nghq_transport_handshake_completed (ngtcp2_conn *conn, void *user_data) {
   DEBUG ("nghq_transport_handshake_completed(%p, %p)\n", (void *) conn,
          user_data);
+  nghq_session *session = (nghq_session *) user_data;
+  if ((session->mode == NGHQ_MODE_MULTICAST) &&
+      (session->role == NGHQ_ROLE_CLIENT)) {
+    /* This should open Stream 4 for us */
+    nghq_req_stream_new(session);
+  }
   return 0;
 }
 

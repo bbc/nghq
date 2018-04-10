@@ -124,6 +124,7 @@ int nghq_mcast_swallow (nghq_session* session, const ngtcp2_pkt_hd *hd,
                         const ngtcp2_frame *fr);
 
 nghq_stream *nghq_stream_new (uint64_t stream_id);
+nghq_stream *nghq_req_stream_new(nghq_session* session);
 
 #define NGHQ_NO_PUSH 0x7FFFFFFFFFFFFFFF
 #define NGHQ_MULTICAST_MAX_UNI_STREAM_ID 0x3FFFFFFFFFFFFFFF

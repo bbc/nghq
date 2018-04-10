@@ -213,7 +213,7 @@ static const uint8_t fake_server_handshake_packet[] = {
     /*** Transport Parameters ***/
     0xff, 0x00, 0x00, 0x09, /* "Negotiated" version: draft-09 */
     0x04,                     /* Length of Supported versions: 4 bytes/1 ver */
-    0xff, 0x00, 0x00, 0x00,   /* Supported version 1: draft-09 */
+    0xff, 0x00, 0x00, 0x09,   /* Supported version 1: draft-09 */
     0x00, 0x3a,   /* Length of Parameters: 58 */
     0x00, 0x00,     /* initial_max_stream_data */
     0x00, 0x04, 0x00, 0x04, 0x00, 0x00, /* 32-bit, 262144 */
@@ -245,11 +245,12 @@ static const uint8_t fake_client_stream_4_packet[] = {
     0x12, /* Stream frame with length */
     0x04,   /* Stream ID = 4 */
     0x10,   /* Length = 16 */
+    0x10, 0x00, 0x00, /* Length 16, data, no flags */
     0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */
     0x73, 0x74, 0x20, 0x6d, 0x61, 0x67, 0x69, 0x63
 };
 
-#define LENGTH_CLIENT_STREAM_4_PACKET 32
+#define LENGTH_CLIENT_STREAM_4_PACKET 35
 
 static const uint8_t quic_mcast_magic[] = {
     0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */
