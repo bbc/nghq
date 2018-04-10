@@ -310,7 +310,10 @@ int nghq_transport_stream_close (ngtcp2_conn *conn, uint64_t stream_id,
   DEBUG ("nghq_transport_stream_close(%p, %lu, %u, %p, %p)\n", (void *) conn,
          stream_id, app_error_code, user_data, stream_user_data);
   nghq_session* session = (nghq_session *) user_data;
-  nghq_stream* stream = (nghq_stream *) stream_user_data;
+  nghq_stream* stream = nghq_stream_id_map_find(session->transfers, stream_id);
+  if (stream == NULL) {
+    ERROR("Unknown stream ID %lu is closing\n", stream_id);
+  }
   if (stream->stream_id != stream_id) {
     abort();
   }
