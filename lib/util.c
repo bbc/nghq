@@ -125,7 +125,7 @@ size_t _make_varlen_int (uint8_t* buf, uint64_t n) {
  * on repeated calls to the library.
  */
 
-uint64_t _get_varlen_int (uint8_t* buf, size_t* bytes) {
+uint64_t _get_varlen_int (const uint8_t* buf, size_t* bytes) {
   uint64_t rv = 0;
   union {
     char b[8];
@@ -136,26 +136,26 @@ uint64_t _get_varlen_int (uint8_t* buf, size_t* bytes) {
 
   switch (buf[0] & 0xC0) {
     case _VARLEN_INT_6_BIT:
-      bytes += 1;
+      *bytes += 1;
       rv = (uint64_t) buf[0];
       break;
     case _VARLEN_INT_14_BIT:
       memcpy(&n, buf, 2);
       n.b[0] &= 0x3f;
       rv = (uint64_t) ntohs(n.n16);
-      bytes += 2;
+      *bytes += 2;
       break;
     case _VARLEN_INT_30_BIT:
       memcpy(&n, buf, 4);
       n.b[0] &= 0x3f;
       rv = (uint64_t) ntohl(n.n32);
-      bytes += 4;
+      *bytes += 4;
       break;
     case _VARLEN_INT_62_BIT:
       memcpy(&n, buf, 8);
       n.b[0] &= 0x3f;
       rv = (uint64_t) bswap64(n.n64);
-      bytes += 8;
+      *bytes += 8;
       break;
   }
 

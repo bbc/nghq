@@ -38,18 +38,19 @@
  * at least 10 bytes long in order to contain a complete HTTP/QUIC frame header
  */
 uint64_t _parse_frame_header (uint8_t* buf, nghq_frame_type *type,
-                              uint8_t *flags, size_t *header_len) {
-  uint64_t len = _get_varlen_int(buf, header_len);
-  *type = buf[*header_len];
+                              uint8_t *flags, size_t *length_size) {
+  uint64_t len = _get_varlen_int(buf, length_size);
+  *type = buf[*length_size];
   if (flags != NULL) {
-    *flags = buf[++(*header_len)];
+    *flags = buf[++(*length_size)];
   }
+  *length_size += 2; /* Type + flags */
   return len;
 }
 
 ssize_t parse_frames (uint8_t* buf, size_t buf_len, nghq_frame_type *type) {
-  uint64_t frame_length;
-  size_t header_length;
+  uint64_t frame_length = 0;
+  size_t header_length = 0;
 
   if (buf_len < 10) {
     /*
@@ -267,22 +268,22 @@ int parse_settings_frame (uint8_t* buf, size_t buf_len,
 ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
                               size_t buf_len, uint64_t* push_id,
                               nghq_header ***hdrs, size_t* num_hdrs) {
-  size_t header_len = 0, push_id_len = 0, expected_header_block_len;
+  size_t push_header_len = 0, push_id_len = 0, frame_payload_len;
   nghq_frame_type type;
-  expected_header_block_len = _parse_frame_header(buf, &type, NULL, &header_len);
+  frame_payload_len = _parse_frame_header(buf, &type, NULL, &push_header_len);
 
   if (type != NGHQ_FRAME_TYPE_PUSH_PROMISE) {
     return NGHQ_ERROR;
   }
 
-  if (expected_header_block_len > buf_len - header_len) {
+  *push_id = _get_varlen_int(buf+push_header_len, &push_id_len);
+
+  if (frame_payload_len > buf_len - push_header_len) {
     return buf_len;
   }
 
-  *push_id = _get_varlen_int(buf+header_len, &push_id_len);
-
-  return nghq_inflate_hdr(ctx, buf + header_len + push_id_len,
-                          expected_header_block_len - push_id_len, 1, hdrs,
+  return nghq_inflate_hdr(ctx, buf + push_header_len + push_id_len,
+                          frame_payload_len - push_id_len, 1, hdrs,
                           num_hdrs);
 }
 
