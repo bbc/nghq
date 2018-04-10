@@ -271,7 +271,7 @@ ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx, uint8_t* buf,
   nghq_frame_type type;
   expected_header_block_len = _parse_frame_header(buf, &type, NULL, &header_len);
 
-  if (type != NGHQ_FRAME_TYPE_HEADERS) {
+  if (type != NGHQ_FRAME_TYPE_PUSH_PROMISE) {
     return NGHQ_ERROR;
   }
 
