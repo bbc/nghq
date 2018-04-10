@@ -198,7 +198,7 @@ int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
 
   *hdr_block = (uint8_t *) malloc (*block_len);
 
-  *block_len = nghttp2_hd_deflate_hd(ctx->deflater, *hdr_block, *block_len, nva,
+  rv = nghttp2_hd_deflate_hd(ctx->deflater, *hdr_block, *block_len, nva,
                                      num_hdrs);
 
   if (rv == NGHTTP2_ERR_NOMEM) {
@@ -208,6 +208,7 @@ int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
   } else if (rv == NGHTTP2_ERR_INSUFF_BUFSIZE) {
     return NGHQ_HDR_COMPRESS_FAILURE;
   }
+  *block_len = rv;
   return num_hdrs;
 }
 
