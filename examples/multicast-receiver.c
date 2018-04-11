@@ -89,6 +89,12 @@ static void session_status_cb (nghq_session *session, nghq_error status,
     /* session_data *sdata = (session_data*)session_user_data; */
 }
 
+static int recv_control_data_cb (nghq_session *session, const uint8_t *buf,
+                                 size_t buflen, void *session_user_data)
+{
+  return NGHQ_OK;
+}
+
 static int on_begin_headers_cb (nghq_session *session, nghq_headers_type type,
                                 void *session_user_data,
                                 void *request_user_data)
@@ -108,8 +114,8 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
 {
     push_request *req = (push_request*)request_user_data;
     printf("%c> %.*s: %.*s\n",
-           ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'), hdr->name_len,
-           hdr->name, hdr->value_len, hdr->value);
+           ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'),
+           (int) hdr->name_len, hdr->name, (int) hdr->value_len, hdr->value);
 }
 
 static int on_data_recv_cb (nghq_session *session, uint8_t flags,
@@ -137,6 +143,7 @@ static nghq_callbacks g_callbacks = {
     encrypt_cb,
     send_cb,
     session_status_cb,
+    recv_control_data_cb,
     on_begin_headers_cb,
     on_headers_cb,
     on_data_recv_cb,

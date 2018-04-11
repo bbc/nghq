@@ -417,6 +417,22 @@ typedef void (*nghq_session_status_callback) (nghq_session *session,
                                               void *session_user_data);
 
 /**
+ * @brief Delivers control data
+ *
+ * This callback is to deliver control data from stream 0 that the client
+ * application will need to deal with. This is most likely to be the handshake
+ * packets, and the application should call nghq_feed_transport_params when it
+ * has the TransportParameters from the QUIC Transport Parameters TLS Extension
+ *
+ * @return NGHQ_OK if this callback succeeds, otherwise an error code may be
+ *    returned.
+ */
+typedef int (*nghq_recv_control_data_callback) (nghq_session *session,
+                                                const uint8_t *data,
+                                                size_t len,
+                                                void *session_user_data);
+
+/**
  * @brief Signify the arrival of the first HEADERS
  *
  * This function will be called when the library has received either a HEADERS
@@ -772,6 +788,7 @@ struct nghq_callbacks {
   nghq_encrypt_callback           encrypt_callback;
   nghq_send_callback              send_callback;
   nghq_session_status_callback    session_status_callback;
+  nghq_recv_control_data_callback recv_control_data_callback;
   nghq_on_begin_headers_callback  on_begin_headers_callback;
   nghq_on_headers_callback        on_headers_callback;
   nghq_on_data_recv_callback      on_data_recv_callback;
