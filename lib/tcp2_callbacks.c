@@ -37,21 +37,22 @@ ssize_t nghq_transport_send_client_initial (ngtcp2_conn *conn, uint32_t flags,
   DEBUG("nghq_transport_send_client_initial(%p, %x, %lu, %p, %p)\n",
         (void *)conn, flags, *ppkt_num, (void *) pdest, user_data);
   nghq_session *session = (nghq_session *) user_data;
+  ssize_t params_size;
+  uint8_t* buf;
 
-  ngtcp2_transport_params params;
-  ngtcp2_conn_get_local_transport_params(conn, &params,
-      NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO);
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    params_size = nghq_get_transport_params (session, &buf);
+    if (params_size < 0) {
+      return params_size;
+    }
 
-  params.initial_max_stream_id_uni = 0x3FFFFFFF;
-  params.initial_max_stream_id_bidi = 4;
-
-  ngtcp2_encode_transport_params(session->send_buf->buf,
-                                 session->send_buf->buf_len,
-                                 NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO,
-                                 &params);
+    free(session->send_buf->buf);
+    session->send_buf->buf = buf;
+    session->send_buf->buf_len = params_size;
+  }
 
   *ppkt_num = 0;
-  const uint8_t *c_buf = session->send_buf->buf;
+  const uint8_t *c_buf = buf;
   *pdest = c_buf;
   return session->send_buf->buf_len;
 }
@@ -108,55 +109,17 @@ int nghq_transport_recv_stream0_data (ngtcp2_conn *conn, const uint8_t *data,
                                       size_t datalen, void *user_data) {
   DEBUG("nghq_transport_recv_stream0_data(%p, %p, %lu, %p)\n", (void *) conn,
         (void *) data, datalen, user_data);
-  int rv;
-  ngtcp2_transport_params params;
+  int rv = NGHQ_OK;
   nghq_session *session = (nghq_session *) user_data;
 
   if (session->mode == NGHQ_MODE_MULTICAST) {
-    if (session->role == NGHQ_ROLE_SERVER) {
-      rv = ngtcp2_decode_transport_params(&params,
-             NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO, data, datalen);
-    } else {
-      rv = ngtcp2_decode_transport_params(&params,
-             NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS, data, datalen);
-    }
-    if (rv != 0) {
-      ERROR("ngtcp2_decode_transport_params failed: %s\n", ngtcp2_strerror(rv));
-      return NGTCP2_ERR_CALLBACK_FAILURE;
-    }
+    rv = nghq_feed_transport_params (session, data, datalen);
   } else {
-    /* Unicast: TODO */
+    session->callbacks.recv_control_data_callback (session, data, datalen,
+                                                   session->session_user_data);
   }
 
-  DEBUG("Multicast transport parameters from \"remote\" set as:\n"
-        "\tversion: %x\n\tinitial_max_stream_data: %u\n"
-        "\tinitial_max_data: %u\n\tinitial_max_stream_id_bidi: %u\n"
-        "\tinitial_max_stream_id_uni: %u\n\tidle_timeout: %u\n"
-        "\tomit_connection_id: %u\n\tmax_packet_size: %u\n"
-        "\tack_delay_exponent: %u\n",
-        (session->role==NGHQ_ROLE_SERVER)?(params.v.ch.initial_version):(params.v.ee.negotiated_version),
-        params.initial_max_stream_data, params.initial_max_data,
-        params.initial_max_stream_id_bidi, params.initial_max_stream_id_uni,
-        params.idle_timeout, params.omit_connection_id,
-        params.max_packet_size, params.ack_delay_exponent);
-
-  if (session->mode == NGHQ_MODE_MULTICAST) {
-    params.initial_max_stream_id_bidi = 0xfffffffc;
-  }
-  if (session->role == NGHQ_ROLE_SERVER) {
-    rv = ngtcp2_conn_set_remote_transport_params(session->ngtcp2_session,
-           NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO, &params);
-    if (rv != 0) {
-      return NGTCP2_ERR_CALLBACK_FAILURE;
-    }
-  } else if (session->role == NGHQ_ROLE_CLIENT) {
-    rv = ngtcp2_conn_set_remote_transport_params(session->ngtcp2_session,
-           NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS, &params);
-    if (rv != 0) {
-      return NGTCP2_ERR_CALLBACK_FAILURE;
-    }
-  }
-  return 0;
+  return rv;
 }
 
 /* DEBUGGING ONLY */

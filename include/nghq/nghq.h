@@ -271,6 +271,46 @@ extern int nghq_session_recv (nghq_session *session);
  */
 extern int nghq_session_send (nghq_session *session);
 
+/**
+ * @brief Retrieve transport parameter buffer
+ *
+ * When the library is in unicast mode, this method should be called to get the
+ * QUIC TransportParameters which need to be encoded into the TLS extension.
+ * In effect, this will be a binary representation of the parameters passed in
+ * to nghq_session_{client|server}_new.
+ *
+ * This method will allocate the memory for @p buf.
+ *
+ * @param session A running NGHQ session
+ * @param buf A pointer to the buffer to put the TransportParameters into
+ *
+ * @return The size of @p buf
+ * @return NGHQ_SESSION_CLOSED if the session has been closed
+ * @return NGHQ_OUT_OF_MEMORY if an internal part of the library failed to
+ *    allocate memory
+ */
+extern ssize_t nghq_get_transport_params (nghq_session *session, uint8_t **buf);
+
+/**
+ * @brief Feed received TransportParameters into the library
+ *
+ * During the handshake, the application will need to read the contents of the
+ * QUIC TransportParameters TLS extension and feed this data into the library.
+ *
+ * @param session A running NGHQ session
+ * @param buf A buffer containing the TransportParameters
+ * @param buflen The size of @p buf
+ *
+ * @return NGHQ_OK if the call succeeds
+ * @return NGHQ_INTERNAL_ERROR if this call fails internally
+ * @return NGHQ_SESSION_CLOSED if the session has been closed
+ * @return NGHQ_TRANSPORT_VERSION if no supported protocol version is available
+ *    in the peer's TransportParameters.
+ * @return NGHQ_TRANSPORT_PROTOCOL if the TransportParameters are malformed
+ */
+extern int nghq_feed_transport_params (nghq_session *session,
+                                       const uint8_t *buf, size_t buflen);
+
 /*
  * Session Callbacks
  */

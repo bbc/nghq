@@ -643,6 +643,116 @@ int nghq_session_send (nghq_session *session) {
   return rv;
 }
 
+static int _transport_params_initial_size = 128;
+
+ssize_t nghq_get_transport_params (nghq_session *session, uint8_t **buf) {
+  ngtcp2_transport_params params;
+  ngtcp2_transport_params_type param_type;
+  ssize_t actual_size;
+
+  if (session == NULL) {
+    return NGHQ_SESSION_CLOSED;
+  }
+
+  if (session->role == NGHQ_ROLE_CLIENT) {
+    param_type = NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO;
+  } else if (session->role == NGHQ_ROLE_SERVER) {
+    param_type = NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS;
+  }
+
+  ngtcp2_conn_get_local_transport_params(session->ngtcp2_session, &params,
+                                         param_type);
+
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    params.initial_max_stream_id_uni = 0x3fffffff;
+    params.initial_max_stream_id_bidi = 4;
+  }
+
+  *buf = (uint8_t *) malloc (_transport_params_initial_size);
+  if (*buf == NULL) {
+    return NGHQ_OUT_OF_MEMORY;
+  }
+
+  actual_size = ngtcp2_encode_transport_params(*buf,
+                                               _transport_params_initial_size,
+                                               param_type, &params);
+
+  while (actual_size == NGTCP2_ERR_NOBUF) {
+    if (_transport_params_initial_size == 512) {
+      free (*buf);
+      return NGHQ_INTERNAL_ERROR;
+    }
+    _transport_params_initial_size *= 2;
+    *buf = (uint8_t *) realloc (*buf, _transport_params_initial_size);
+    if (*buf == NULL) {
+      return NGHQ_OUT_OF_MEMORY;
+    }
+    actual_size = ngtcp2_encode_transport_params(*buf,
+                                                 _transport_params_initial_size,
+                                                 param_type, &params);
+  }
+
+  *buf = (uint8_t *) realloc (*buf, actual_size);
+
+  return actual_size;
+}
+
+int nghq_feed_transport_params (nghq_session *session, const uint8_t *buf,
+                                size_t buflen) {
+  int rv = NGTCP2_ERR_FATAL;
+  ngtcp2_transport_params params;
+  ngtcp2_transport_params_type param_type;
+
+  if (session == NULL) {
+    return NGHQ_SESSION_CLOSED;
+  }
+
+  if (session->role == NGHQ_ROLE_SERVER) {
+    param_type = NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO;
+  } else if (session->role == NGHQ_ROLE_CLIENT) {
+    param_type = NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS;
+  }
+
+  rv = ngtcp2_decode_transport_params(&params, param_type, buf, buflen);
+
+  if (rv != 0) {
+    ERROR("ngtcp2_decode_transport_params failed: %s\n", ngtcp2_strerror(rv));
+    return NGHQ_TRANSPORT_PROTOCOL;
+  }
+
+  DEBUG("Multicast transport parameters from \"remote\" set as:\n"
+        "\tversion: %x\n\tinitial_max_stream_data: %u\n"
+        "\tinitial_max_data: %u\n\tinitial_max_stream_id_bidi: %u\n"
+        "\tinitial_max_stream_id_uni: %u\n\tidle_timeout: %u\n"
+        "\tomit_connection_id: %u\n\tmax_packet_size: %u\n"
+        "\tack_delay_exponent: %u\n",
+        (session->role==NGHQ_ROLE_SERVER)?(params.v.ch.initial_version):(params.v.ee.negotiated_version),
+        params.initial_max_stream_data, params.initial_max_data,
+        params.initial_max_stream_id_bidi, params.initial_max_stream_id_uni,
+        params.idle_timeout, params.omit_connection_id,
+        params.max_packet_size, params.ack_delay_exponent);
+
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    params.initial_max_stream_id_bidi = 0xfffffffc;
+  }
+  rv = ngtcp2_conn_set_remote_transport_params(session->ngtcp2_session,
+                                               param_type, &params);
+  if (rv != 0) {
+    ERROR("ngtcp2_conn_set_remote_transport_params failed: %s\n",
+          ngtcp2_strerror(rv));
+    switch (rv) {
+      case NGTCP2_ERR_PROTO:
+        return NGHQ_TRANSPORT_PROTOCOL;
+      case NGTCP2_ERR_INVALID_ARGUMENT:
+        return NGHQ_INTERNAL_ERROR;
+      case NGTCP2_ERR_VERSION_NEGOTIATION:
+        return NGHQ_TRANSPORT_VERSION;
+    }
+  }
+
+  return NGHQ_OK;
+}
+
 int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
                          size_t num_hdrs, const uint8_t *req_body, size_t len,
                          void *request_user_data) {
