@@ -50,19 +50,21 @@ int _create_header (struct _temp_list **node, uint8_t* name, size_t namelen,
     return NGHQ_OUT_OF_MEMORY;
   }
 
-  (*node)->header->name = (uint8_t *) malloc (namelen);
+  (*node)->header->name = (uint8_t *) malloc (namelen + 1);
   if ((*node)->header->name == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
   (*node)->header->name_len = namelen;
   memcpy((*node)->header->name, name, namelen);
+  (*node)->header->name[namelen] = 0;
 
-  (*node)->header->value = (uint8_t *) malloc (valuelen);
+  (*node)->header->value = (uint8_t *) malloc (valuelen + 1);
   if ((*node)->header->value == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
   (*node)->header->value_len = valuelen;
   memcpy((*node)->header->value, value, valuelen);
+  (*node)->header->value[valuelen] = 0;
 
   return NGHQ_OK;
 }
