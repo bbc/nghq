@@ -264,7 +264,7 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
   }
 
   return nghq_recv_stream_data(session, stream, data + offset,
-                               datalen - offset);
+                               datalen - offset, 0);
 }
 
 int nghq_transport_stream_close (ngtcp2_conn *conn, uint64_t stream_id,

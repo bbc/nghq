@@ -119,7 +119,7 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
 }
 
 static int on_data_recv_cb (nghq_session *session, uint8_t flags,
-                            const uint8_t *data, size_t len,
+                            const uint8_t *data, size_t len, size_t off,
                             void *request_user_data)
 {
     printf("Received %zu bytes\n", len);

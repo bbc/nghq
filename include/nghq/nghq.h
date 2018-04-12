@@ -490,12 +490,17 @@ typedef int (*nghq_on_headers_callback) (nghq_session *session, uint8_t flags,
  * request has been received. If the @p flags parameter satisfies the bitmask
  * NGHQ_DATA_FLAGS_END_DATA then this is the last callback for a request.
  *
+ * The buffer @p data is the block of data, of length @p len at offset @p off.
+ * When in multicast mode, there may be gaps where the offset in a new call
+ * to this callback will be greater than the previous offset plus the length.
+ * This indicates that there was multicast packet loss.
+ *
  * @return NGHQ_OK, unless you want to receive no more data from this
  *    request/response, then you may return NGHQ_NOT_INTERESTED
  */
 typedef int (*nghq_on_data_recv_callback) (nghq_session *session, uint8_t flags,
                                            const uint8_t *data, size_t len,
-                                           void *request_user_data);
+                                           size_t off, void *request_user_data);
 
 /**
  * @brief Server has cancelled a push promise

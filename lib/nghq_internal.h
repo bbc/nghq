@@ -58,6 +58,8 @@ typedef struct {
   nghq_io_buf*  recv_buf;
   size_t        buf_idx;
   uint64_t      tx_offset;  /*Offset where all data before is acked by remote peer*/
+  size_t        headers_off; /* Size of HEADERS blocks before BODY */
+  size_t        body_off; /* Size of BODY block */
   void *        user_data;
   uint8_t       priority;
   nghq_stream_state recv_state;
@@ -111,7 +113,7 @@ struct nghq_session {
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
-                           const uint8_t* data, size_t datalen);
+                           const uint8_t* data, size_t datalen, size_t off);
 
 int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
                            uint8_t* buf, size_t buflen);

@@ -53,6 +53,8 @@ nghq_stream * nghq_stream_init() {
   stream->recv_buf = NULL;
   stream->buf_idx = 0;
   stream->tx_offset = 0;
+  stream->headers_off = 0;
+  stream->body_off = 0;
   stream->user_data = (void *) &stream->stream_id; /*Guaranteed to be unique!*/
   stream->priority = 0;
   stream->recv_state = STATE_OPEN;
@@ -1059,7 +1061,7 @@ int nghq_set_max_promises (nghq_session* session, uint64_t max_push) {
  */
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
-                           const uint8_t* data, size_t datalen) {
+                           const uint8_t* data, size_t datalen, size_t off) {
   if (stream->recv_buf == NULL) {
     uint8_t *buf = malloc (datalen);
     if (buf == NULL) {
@@ -1094,14 +1096,17 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
     case NGHQ_FRAME_TYPE_DATA: {
       uint8_t* outbuf = NULL;
       size_t outbuflen = 0;
+      size_t offset = off - stream->headers_off;
+
       to_process = parse_data_frame (stream->recv_buf->buf,
                                      stream->recv_buf->buf_len, &outbuf,
                                      &outbuflen);
 
       if (outbuf != NULL) {
         session->callbacks.on_data_recv_callback(session, 0, outbuf,
-                                                  outbuflen,
-                                                  stream->user_data);
+                                                 outbuflen, offset,
+                                                 stream->user_data);
+        stream->body_off = off - stream->headers_off;
       }
       break;
     }
@@ -1147,6 +1152,8 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
           session->callbacks.on_headers_callback (session, flags, hdrs[i],
                                                    stream->user_data);
         }
+
+        stream->headers_off = off;
       }
       break;
     }
