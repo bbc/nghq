@@ -7,10 +7,18 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #include <ev.h>
 
 #include <nghq/nghq.h>
+
+#define _STR(a) #a
+#define STR(a) _STR(a)
+#define DEFAULT_MCAST_GRP     "232.0.0.1"
+#define DEFAULT_MCAST_PORT    2000
+#define DEFAULT_SRC_ADDR      "127.0.0.1"
+#define DEFAULT_CONNECTION_ID 1
 
 typedef enum ReceivingHeaders {
     HEADERS_REQUEST = 0,
@@ -35,7 +43,7 @@ static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
     ssize_t result;
     result = recv(sdata->socket, data, len, 0);
     if (result < 0) {
-      if (errno != EWOULDBLOCK) {
+      if (errno != EWOULDBLOCK && errno != EAGAIN) {
         return NGHQ_ERROR;
       }
       return 0;
@@ -99,8 +107,9 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
                           nghq_header *hdr, void *request_user_data)
 {
     push_request *req = (push_request*)request_user_data;
-    printf("%c> %*s: %*s\n", ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'),
-            hdr->name_len, hdr->name, hdr->value_len, hdr->value);
+    printf("%c> %.*s: %.*s\n",
+           ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'), hdr->name_len,
+           hdr->name, hdr->value_len, hdr->value);
 }
 
 static int on_data_recv_cb (nghq_session *session, uint8_t flags,
@@ -175,9 +184,75 @@ int main(int argc, char *argv[])
     struct sockaddr_in src_addr;
     struct group_source_req gsr;
 
-    if (argc < 3) {
-      fprintf(stderr, "Usage: %s [mcast-grp] [src-addr]\n", argv[0]);
-      return -1;
+    static const char short_opts[] = "hi:p:";
+    static const struct option long_opts[] = {
+        {"help", 0, NULL, 'h'},
+        {"connection-id", 1, NULL, 'i'},
+        {"port", 1, NULL, 'p'},
+        {NULL, 0, NULL, 0}
+    };
+
+    int help = 0;
+    int usage = 0;
+    int err_out = 0;
+    unsigned int connection_id = DEFAULT_CONNECTION_ID;
+    unsigned short recv_port = DEFAULT_MCAST_PORT;
+    const char *mcast_grp = DEFAULT_MCAST_GRP;
+    const char *src_ip = DEFAULT_SRC_ADDR;
+    int opt;
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
+        switch (opt) {
+        case 'h':
+            help = 1;
+            usage = 1;
+            break;
+        case 'i':
+            connection_id = atoi(optarg);
+            break;
+        case 'p':
+            recv_port = atoi(optarg);
+            break;
+        default:
+            usage = 1;
+            err_out = 1;
+            break;
+        }
+    }
+
+    /* error if more than 2 optional arguments left over */
+    if (optind+2 < argc) {
+        usage = 1;
+        err_out = 1;
+    }
+
+    if (usage) {
+      fprintf(err_out?stderr:stdout,
+"Usage: %s [-h] [-p <port>] [-i <id>] [<mcast-grp> [<src-addr>]]\n",
+              argv[0]);
+    }
+    if (help) {
+      printf("\n"
+"Options:\n"
+"  --help          -h        Display this help text.\n"
+"  --port          -p <port> UDP port number to receive on [default: " STR(DEFAULT_MCAST_PORT) "].\n"
+"  --connection-id -i <id>   The connection ID to expect [default: " STR(DEFAULT_CONNECTION_ID) "].\n"
+"\n"
+"Arguments:\n"
+"  <mcast-grp> The multicast group to receive on [default: " DEFAULT_MCAST_GRP "].\n"
+"  <src-addr>  The multicast source address [default: " DEFAULT_SRC_ADDR "].\n"
+"\n");
+    }
+    if (usage) {
+      return err_out;
+    }
+
+    if (optind < argc) {
+        mcast_grp = argv[optind];
+    }
+
+    if (optind+1 < argc) {
+        src_ip = argv[optind+1];
     }
 
     /* Initialise libev */
@@ -185,11 +260,11 @@ int main(int argc, char *argv[])
 
     /* make the connection */
     mcast_addr.sin_family = AF_INET;
-    mcast_addr.sin_addr.s_addr = inet_addr (argv[1]);
-    mcast_addr.sin_port = htons(2000);
+    mcast_addr.sin_addr.s_addr = inet_addr (mcast_grp);
+    mcast_addr.sin_port = htons(recv_port);
 
     src_addr.sin_family = AF_INET;
-    src_addr.sin_addr.s_addr = inet_addr (argv[2]);
+    src_addr.sin_addr.s_addr = inet_addr (src_ip);
     src_addr.sin_port = 0;
 
     gsr.gsr_interface = 0;

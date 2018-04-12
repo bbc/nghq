@@ -1,15 +1,26 @@
 #include <errno.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <arpa/inet.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #include <ev.h>
 
 #include "nghq/nghq.h"
+
+#define _STR(a) #a
+#define STR(a) _STR(a)
+#define DEFAULT_MCAST_GRP     "232.0.0.1"
+#define DEFAULT_IFC_ADDR      "127.0.0.1"
+#define DEFAULT_MCAST_PORT    2000
+#define DEFAULT_MCAST_TTL     1
+#define DEFAULT_CONNECTION_ID 1
 
 typedef struct server_session {
     nghq_session *session;
@@ -17,6 +28,7 @@ typedef struct server_session {
     ev_idle send_idle;
     int socket;
     struct sockaddr_in mcast_addr;
+    struct sockaddr_in send_addr;
 } server_session;
 
 static char method_hdr[] = ":method";
@@ -213,18 +225,115 @@ int main(int argc, char *argv[])
     int promise_request_user_data;
     int result;
     int i;
+    static const int on = 1;
+
+    static const char short_opts[] = "hi:p:t:";
+    static const struct option long_opts[] = {
+        {"help", 0, NULL, 'h'},
+        {"connection-id", 1, NULL, 'i'},
+        {"port", 1, NULL, 'p'},
+        {"ttl", 1, NULL, 't'},
+        {NULL, 0, NULL, 0}
+    };
+
+    int help = 0;
+    int usage = 0;
+    int err_out = 0;
+    int ttl = DEFAULT_MCAST_TTL;
+    unsigned int connection_id = DEFAULT_CONNECTION_ID;
+    unsigned short send_port = DEFAULT_MCAST_PORT;
+    const char *mcast_grp = DEFAULT_MCAST_GRP;
+    const char *ifc_ip = DEFAULT_IFC_ADDR;
+    int opt;
+    int option_index = 0;
+
+    while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
+        switch (opt) {
+        case 'h':
+            help = 1;
+            usage = 1;
+            break;
+        case 'i':
+            connection_id = atoi (optarg);
+            break;
+        case 'p':
+            send_port = atoi (optarg);
+            break;
+	case 't':
+	    ttl = atoi (optarg);
+	    if (ttl<1) ttl = 1;
+            if (ttl>255) ttl = 255;
+	    break;
+        default:
+            usage = 1;
+            err_out = 1;
+            break;
+        }
+    }
+
+    /* error if more than 2 optional arguments left over */
+    if (optind+2 < argc) {
+        usage = 1;
+        err_out = 1;
+    }
+
+    if (usage) {
+      fprintf(err_out?stderr:stdout,
+"Usage: %s [-h] [-p <port>] [-i <id>] [-t <ttl>] [<mcast-grp> [<ifc-addr>]]\n",
+              argv[0]);
+    }
+    if (help) {
+      printf("\n"
+"Options:\n"
+"  --help          -h        Display this help text.\n"
+"  --port          -p <port> UDP port number to send to [default: " STR(DEFAULT_MCAST_PORT) "].\n"
+"  --connection-id -i <id>   The connection ID to expect [default: " STR(DEFAULT_CONNECTION_ID) "].\n"
+"  --ttl           -t <ttl>  The TTL to use for multicast [default: " STR(DEFAULT_MCAST_TTL) "].\n"
+"\n"
+"Arguments:\n"
+"  <mcast-grp> The multicast group to send on [default: " DEFAULT_MCAST_GRP "].\n"
+"  <ifc-addr>  The source interface address [default: " DEFAULT_IFC_ADDR "].\n"
+"\n");
+    }
+    if (usage) {
+      return err_out;
+    }
+
+    if (optind < argc) {
+        mcast_grp = argv[optind];
+    }
+
+    if (optind+1 < argc) {
+        ifc_ip = argv[optind+1];
+    }
 
     /* Initialise libev */
     ev_default_loop (0);
 
-    /* make the connection */
+    /* configure the group address */
     g_server_session.mcast_addr.sin_family = AF_INET;
-    /* 232.221.0.1:2000 */
-    g_server_session.mcast_addr.sin_addr.s_addr = htonl (0xe8dd0001);
-    g_server_session.mcast_addr.sin_port = htons(2000);
+    g_server_session.mcast_addr.sin_addr.s_addr = inet_addr (mcast_grp);
+    g_server_session.mcast_addr.sin_port = htons(send_port);
 
-    /* Initialise session data */
+    /* configure the sending address */
+    g_server_session.send_addr.sin_family = AF_INET;
+    g_server_session.send_addr.sin_addr.s_addr = inet_addr (ifc_ip);
+    g_server_session.send_addr.sin_port = 0;
+
+    /* Create sending socket */
     g_server_session.socket = socket (AF_INET, SOCK_DGRAM|SOCK_NONBLOCK, 0);
+
+    /* configure send interface */
+    setsockopt (g_server_session.socket, IPPROTO_IP, IP_MULTICAST_IF,
+                &g_server_session.send_addr.sin_addr.s_addr,
+		sizeof(g_server_session.send_addr.sin_addr.s_addr));
+    setsockopt (g_server_session.socket, IPPROTO_IP, IP_MULTICAST_LOOP, &on,
+		sizeof(on));
+    setsockopt (g_server_session.socket, IPPROTO_IP, IP_MULTICAST_TTL, &ttl,
+                sizeof(ttl));
+    bind (g_server_session.socket,
+          (struct sockaddr*)&g_server_session.send_addr,
+          sizeof(g_server_session.send_addr));
 
     ev_io_init (&g_server_session.socket_writable, socket_writable_cb,
 		g_server_session.socket, EV_WRITE);
