@@ -17,6 +17,7 @@ OBJECTS = \
 	map.c \
 	util.c \
 	tcp2_callbacks.c \
+	multicast.c \
 	io_buf.c \
 	nghq.c
 

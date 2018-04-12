@@ -163,6 +163,7 @@ static nghq_transport_settings g_trans_settings = {
     60,                   /* idle_timeout (seconds) */
     1500,                 /* max_packet_size */
     0,  /* use default */ /* ack_delay_exponent */
+    1                     /* connection id */
 };
 
 static void socket_readable_cb (EV_P_ ev_io *w, int revents)
@@ -202,7 +203,7 @@ int main(int argc, char *argv[])
     int help = 0;
     int usage = 0;
     int err_out = 0;
-    unsigned int connection_id = DEFAULT_CONNECTION_ID;
+    g_trans_settings.init_conn_id = DEFAULT_CONNECTION_ID;
     unsigned short recv_port = DEFAULT_MCAST_PORT;
     const char *mcast_grp = DEFAULT_MCAST_GRP;
     const char *src_ip = DEFAULT_SRC_ADDR;
@@ -215,7 +216,7 @@ int main(int argc, char *argv[])
             usage = 1;
             break;
         case 'i':
-            connection_id = atoi(optarg);
+            g_trans_settings.init_conn_id = atoi(optarg);
             break;
         case 'p':
             recv_port = atoi(optarg);

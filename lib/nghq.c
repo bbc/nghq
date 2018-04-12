@@ -75,6 +75,7 @@ nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
     return NULL;
   }
 
+  session->connection_id = transport->init_conn_id;
   session->mode = transport->mode;
   session->handshake_complete = 0;
   session->max_open_requests = transport->max_open_requests * 4;
@@ -206,10 +207,12 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
     }
 
     /* Fake handshake for multicast */
-    result = ngtcp2_conn_recv(session->ngtcp2_session,
-                              fake_server_handshake_packet,
-                              LENGTH_SERVER_HANDSHAKE_PACKET,
-                              get_timestamp_now());
+    uint8_t *fake_server_handshake;
+    size_t len_server_hs = get_fake_server_handshake_packet (
+        session->connection_id, 1, &fake_server_handshake);
+    result = ngtcp2_conn_recv(session->ngtcp2_session, fake_server_handshake,
+                              len_server_hs, get_timestamp_now());
+    free (fake_server_handshake);
 
     if (result < 0) {
       ERROR("Failed to submit fake server handshake to client instance: %s\n",
@@ -320,10 +323,12 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     ngtcp2_pkt_hd hd;
     ngtcp2_transport_params params;
     uint8_t *buf;
+    size_t len_client_init;
     ssize_t encoded_params_size;
 
-    result = ngtcp2_accept(&hd, fake_client_initial_packet,
-                           LENGTH_INITIAL_PACKET);
+    len_client_init = get_fake_client_initial_packet (session->connection_id,
+                                                      0, &buf);
+    result = ngtcp2_accept(&hd, buf, len_client_init);
     if (result < 0) {
       ERROR("The fake client initial packet was not accepted by ngtcp2: %s\n",
             ngtcp2_strerror(result));
@@ -331,9 +336,9 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     }
     session->connection_id = hd.conn_id;
 
-    result = ngtcp2_conn_recv(session->ngtcp2_session,
-                              fake_client_initial_packet, LENGTH_INITIAL_PACKET,
+    result = ngtcp2_conn_recv(session->ngtcp2_session, buf, len_client_init,
                               get_timestamp_now());
+    free (buf);
     if (result != 0) {
       ERROR("ngtcp2_conn_recv encountered an error: %s\n",
             ngtcp2_strerror(result));
@@ -414,17 +419,17 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
       ERROR("ngtcp2_conn_update_rx_keys: %s\n", ngtcp2_strerror((int) result));
     }
 
-    result = ngtcp2_conn_recv(session->ngtcp2_session,
-                              fake_client_stream_4_packet,
-                              LENGTH_CLIENT_STREAM_4_PACKET,
+    uint8_t *strm4pkt;
+    size_t len_strm4_pkt = get_fake_client_stream_4_packet (session->connection_id,
+                                                            2, &strm4pkt);
+    result = ngtcp2_conn_recv(session->ngtcp2_session, strm4pkt, len_strm4_pkt,
                               get_timestamp_now());
 
     nghq_io_buf_pop(&stream0->send_buf);
 
-    result = ngtcp2_conn_recv(session->ngtcp2_session,
-                              fake_client_stream_4_packet,
-                              LENGTH_CLIENT_STREAM_4_PACKET,
+    result = ngtcp2_conn_recv(session->ngtcp2_session, strm4pkt, len_strm4_pkt,
                               get_timestamp_now());
+    free (strm4pkt);
     if (result < 0) {
       ERROR("Failed to read stream 4 packet: %s\n",
             ngtcp2_strerror((int) result));

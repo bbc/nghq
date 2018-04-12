@@ -40,6 +40,14 @@ int16_t get_int16_from_buf (uint8_t* buf) {
   return (int16_t) ntohs(rv);
 }
 
+void put_uint16_in_buf (uint8_t* buf, uint16_t n) {
+  n = htons(n);
+  memcpy (buf, (uint8_t *)&n, 2);
+}
+void put_int16_in_buf (uint8_t* buf, int16_t n) {
+  put_uint16_in_buf (buf, (uint16_t) n);
+}
+
 uint32_t get_uint32_from_buf (uint8_t* buf) {
   uint32_t rv;
   memcpy (&rv, buf, 4);
@@ -51,6 +59,14 @@ int32_t get_int32_from_buf (uint8_t* buf) {
   return (int32_t) ntohl(rv);
 }
 
+void put_uint32_in_buf (uint8_t* buf, uint32_t n) {
+  n = htonl(n);
+  memcpy (buf, (uint8_t *)&n, 4);
+}
+void put_int32_in_buf (uint8_t* buf, int32_t n) {
+  put_uint32_in_buf (buf, (uint32_t)n);
+}
+
 uint64_t get_uint64_from_buf (uint8_t* buf) {
   uint64_t rv;
   memcpy (&rv, buf, 8);
@@ -60,6 +76,14 @@ int64_t get_int64_from_buf (uint8_t* buf) {
   int64_t rv;
   memcpy (&rv, buf, 8);
   return bswap64(rv);
+}
+
+void put_uint64_in_buf (uint8_t* buf, uint64_t n) {
+  n = bswap64(n);
+  memcpy (buf, (uint8_t *)&n, 8);
+}
+void put_int64_in_buf (uint8_t* buf, int64_t n) {
+  put_uint64_in_buf( buf, (uint64_t)n);
 }
 
 uint64_t get_timestamp_now () {
@@ -90,23 +114,20 @@ size_t _make_varlen_int (uint8_t* buf, uint64_t n) {
     rv = 1;
   } else if (n < _VARLEN_INT_MAX_14_BIT) {
     if (buf != NULL) {
-      n = htons(n);
-      memcpy(buf, (uint8_t *)&n, 2);
+      put_uint16_in_buf (buf, (uint16_t) n);
       buf[0] |= _VARLEN_INT_14_BIT;
 
     }
     rv = 2;
   } else if (n < _VARLEN_INT_MAX_30_BIT) {
     if (buf != NULL) {
-      n = htonl(n);
-      memcpy(buf, (uint8_t *)&n, 4);
+      put_uint32_in_buf (buf, (uint32_t) n);
       buf[0] |= _VARLEN_INT_30_BIT;
     }
     rv = 4;
   } else if (n < _VARLEN_INT_MAX_62_BIT) {
     if (buf != NULL) {
-      n= bswap64(n);
-      memcpy(buf, (uint8_t *)&n, 8);
+      put_uint64_in_buf (buf, (uint64_t) n);
       buf[0] |= _VARLEN_INT_62_BIT;
     }
     rv = 8;

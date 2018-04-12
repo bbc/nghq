@@ -120,6 +120,8 @@ typedef struct {
   uint16_t idle_timeout;
   uint16_t max_packet_size;
   uint8_t ack_delay_exponent;
+
+  uint64_t init_conn_id;
 } nghq_transport_settings;
 
 #define NGHQ_SETTINGS_HEADER_TABLE_SIZE 0x0001
