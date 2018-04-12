@@ -28,7 +28,7 @@
 
 #include <stdlib.h>
 
-int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen) {
+int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen, int fin) {
   nghq_io_buf* io_buf = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
   if (io_buf == NULL) {
     return NGHQ_OUT_OF_MEMORY;
@@ -36,7 +36,7 @@ int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen) {
 
   io_buf->send_pos = io_buf->buf = buf;
   io_buf->remaining = io_buf->buf_len = buflen;
-  io_buf->complete = 0;
+  io_buf->complete = (fin)?(1):(0);
 
   nghq_io_buf_push(list, io_buf);
   return NGHQ_OK;

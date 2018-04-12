@@ -569,7 +569,7 @@ typedef int (*nghq_on_request_close_callback) (nghq_session *session,
  */
 extern int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
                                 size_t num_hdrs, const uint8_t *req_body,
-                                size_t len, void *request_user_data);
+                                size_t len, int final, void *request_user_data);
 
 /**
  * @brief Submit a push promise to a client
@@ -647,6 +647,9 @@ extern int nghq_set_session_user_data(nghq_session *session,
  * If this is called after the first call to nghq_feed_payload_data(), then
  * these headers will be assumed to be HTTP trailing headers.
  *
+ * If @p final is set to a non-zero value, then this call will also set the
+ * final bit in the QUIC header and close the request.
+ *
  * @return NGHQ_OK if the call succeeds
  * @return NGHQ_TRAILERS_NOT_PROMISED if headers in a trailing headers block
  *    were not declared in the Trailers: header
@@ -655,7 +658,8 @@ extern int nghq_set_session_user_data(nghq_session *session,
  * @return NGHQ_REQUEST_CLOSED if the request is closed
  */
 extern int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
-                              size_t num_hdrs, void *request_user_data);
+                              size_t num_hdrs, int final,
+                              void *request_user_data);
 
 /**
  * @brief Send a block of request or response data
@@ -666,6 +670,9 @@ extern int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
  * Internally, this will buffer up the data, create the packets and then
  * nghq_session_send() will send them.
  *
+ * If @p final is set to a non-zero value, then this call will also set the
+ * final bit in the QUIC header and close the request.
+ *
  * @return The number of bytes that were written. If this is lower than len, you
  *    should call nghq_session_send() to send packets before attempting to add
  *    any more.
@@ -674,20 +681,20 @@ extern int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
  * @return NGHQ_REQUEST_CLOSED if the request is closed
  */
 extern ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
-                                      size_t len, void *request_user_data);
+                                      size_t len, int final,
+                                      void *request_user_data);
 
 /**
  * @brief End the request
  *
  * This method closes a request with the given result. Only one peer needs to
  * call this method, the other end should receive an
- * nghq_on_request_close_callback(). Once called, this instance may not send any
- * more data for this request.
+ * nghq_on_request_close_callback(). Once called, this instance may not send
+ * any more data for this request.
  *
- * If Content-Length was specified, this method may not be necessary as the
- * request will be automatically closed when the final byte of payload data up
- * to the Content-Length size has been received by the library. However, it is
- * unsafe to free request_user_data until this function has been called.
+ * If nghq_submit_request, nghq_feed_headers or nghq_feed_payload_data were
+ * called with their 'final' argument set to a non-zero value, then it is
+ * not necessary to call this method as the stream will be closed implicitly.
  *
  * @return NGHQ_OK If the request is closed
  * @return NGHQ_REQUEST_CLOSED if the request was already closed

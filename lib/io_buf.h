@@ -46,8 +46,9 @@ typedef struct nghq_io_buf {
  * @param list The IO buffer list to add @p buf to
  * @param buf The buffer to add to the list
  * @param buflen The length of @p buf
+ * @param fin Set the fin bit on the QUIC packet when this is sent
  */
-int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen);
+int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen, int fin);
 
 /**
  * @brief Pushes an IO Buffer object to the end of the list

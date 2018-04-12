@@ -372,19 +372,14 @@ int main(int argc, char *argv[])
       printf("\t%s: %s\n", g_response_hdrs[i]->name, g_response_hdrs[i]->value);
     }
     result = nghq_feed_headers (g_server_session.session, g_response_hdrs,
-		     sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]),
+		     sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]), 0,
 		     &promise_request_user_data);
 
     ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
 
     printf("Payload for server push: %s\n", g_response);
     result = nghq_feed_payload_data (g_server_session.session, g_response,
-                     sizeof(g_response), &promise_request_user_data);
-
-    ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
-
-    result = nghq_end_request (g_server_session.session, NGHQ_OK,
-                     &promise_request_user_data);
+                     sizeof(g_response), 1, &promise_request_user_data);
 
     ev_run(EV_DEFAULT_UC_ 0);
 

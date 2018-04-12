@@ -120,6 +120,8 @@ int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
 
 int nghq_write_send_buffer (nghq_session* session);
 
+int nghq_stream_ended (nghq_session* session, nghq_stream *stream);
+
 int nghq_stream_close (nghq_session* session, nghq_stream *stream,
                        uint16_t app_error_code);
 
