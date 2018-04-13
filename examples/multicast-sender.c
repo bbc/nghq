@@ -461,10 +461,17 @@ int main(int argc, char *argv[])
     _bind_socket_interface (g_server_session.socket,
                             (struct sockaddr*)&g_server_session.send_addr,
                             ifc_idx);
-    setsockopt (g_server_session.socket, IPPROTO_IP, IP_MULTICAST_LOOP, &on,
-		sizeof(on));
-    setsockopt (g_server_session.socket, IPPROTO_IP, IP_MULTICAST_TTL, &ttl,
-                sizeof(ttl));
+    if (g_server_session.mcast_addr.ss_family == AF_INET) {
+        setsockopt (g_server_session.socket, SOL_IP, IP_MULTICAST_LOOP, &on,
+		    sizeof(on));
+        setsockopt (g_server_session.socket, SOL_IP, IP_MULTICAST_TTL, &ttl,
+                    sizeof(ttl));
+    } else {
+	setsockopt (g_server_session.socket, SOL_IPV6, IPV6_MULTICAST_LOOP, &on,
+                    sizeof(on));
+	setsockopt (g_server_session.socket, SOL_IPV6, IPV6_MULTICAST_HOPS,
+		    &ttl, sizeof(ttl));
+    }
 
     ev_io_init (&g_server_session.socket_writable, socket_writable_cb,
 		g_server_session.socket, EV_WRITE);
