@@ -1045,10 +1045,6 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
 
   nghq_io_buf_push(&stream->send_buf, frame);
 
-  if (final) {
-    nghq_stream_ended (session, stream);
-  }
-
   return rv;
 }
 
