@@ -60,7 +60,7 @@ nghq_stream * nghq_stream_init() {
   stream->recv_state = STATE_OPEN;
   stream->send_state = STATE_OPEN;
   stream->status = NGHQ_OK;
-  stream->started = 0;
+  stream->flags = STREAM_FLAG_STARTED;
   return stream;
 }
 
@@ -952,6 +952,7 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
                                 (void *) stream);
 
     stream->stream_id = stream_id;
+    stream->send_state = STATE_HDRS;
 
     DEBUG("Push promise %lu will be sent on stream ID %lu\n", push_id,
           stream_id);
@@ -967,6 +968,26 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
   } else {
     DEBUG("Feeding %lu headers on stream ID %lu\n", num_hdrs, stream_id);
     stream = nghq_stream_id_map_find(session->transfers, stream_id);
+    switch (stream->send_state) {
+      case STATE_OPEN:
+        stream->send_state = STATE_HDRS;
+        break;
+      case STATE_HDRS:
+        break;
+      case STATE_BODY:
+        if (STREAM_TRAILERS_PROMISED(stream->flags)) {
+          stream->send_state = STATE_TRAILERS;
+        } else {
+          return NGHQ_TRAILERS_NOT_PROMISED;
+        }
+        break;
+      case STATE_TRAILERS:
+        break;
+      default:
+        ERROR("Tried to send headers for stream %lu when it is closed!\n",
+              stream->stream_id);
+        return NGHQ_REQUEST_CLOSED;
+    }
     rv = create_headers_frame (session->hdr_ctx, -1, hdrs, num_hdrs, &buf,
                                &buf_len);
 
@@ -1002,6 +1023,13 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
   if (stream_id == NGHQ_STREAM_ID_MAP_NOT_FOUND) {
     return NGHQ_ERROR;
   }
+
+  stream = nghq_stream_id_map_find(session->transfers, stream_id);
+
+  if (stream->send_state > STATE_BODY) {
+    return NGHQ_REQUEST_CLOSED;
+  }
+  stream->send_state = STATE_BODY;
 
   frame = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
 
@@ -1074,6 +1102,10 @@ int nghq_set_max_promises (nghq_session* session, uint64_t max_push) {
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
                            const uint8_t* data, size_t datalen, size_t off) {
+  if (!STREAM_STARTED(stream->flags)) {
+    return NGHQ_REQUEST_CLOSED;
+  }
+
   if (stream->recv_buf == NULL) {
     uint8_t *buf = malloc (datalen);
     if (buf == NULL) {
@@ -1110,6 +1142,21 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
       size_t outbuflen = 0;
       size_t offset = off - stream->headers_off;
 
+      switch (stream->recv_state) {
+        case STATE_OPEN:
+          DEBUG("Warning: DATA frame seen before any HEADERS for stream %lu\n",
+                stream->stream_id);
+          return NGHQ_REQUEST_CLOSED;
+        case STATE_HDRS:
+          stream->recv_state = STATE_BODY;
+        case STATE_BODY:
+          break;
+        default:
+          ERROR("Received DATA for stream %lu after the end of the body\n",
+                stream->stream_id);
+          return NGHQ_REQUEST_CLOSED;
+      }
+
       to_process = parse_data_frame (stream->recv_buf->buf,
                                      stream->recv_buf->buf_len, &outbuf,
                                      &outbuflen);
@@ -1142,6 +1189,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
         default:
           ERROR("Received HEADERS for stream %lu, but receive state is done!\n",
                 stream->stream_id);
+          return NGHQ_REQUEST_CLOSED;
       }
       to_process = parse_headers_frame (session->hdr_ctx,
                                         stream->recv_buf->buf,
@@ -1151,7 +1199,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
       if (hdrs != NULL) {
         int i;
 
-        if (stream->started == 0) {
+        if (STREAM_STARTED(stream->flags)) {
           session->callbacks.on_begin_headers_callback(session,
               NGHQ_HT_HEADERS, session->session_user_data, stream->user_data);
         }
@@ -1176,8 +1224,21 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
       uint64_t dependency_id;
       uint8_t weight;
 
+      if ((stream->stream_id != NGHQ_CONTROL_CLIENT) &&
+          (stream->stream_id != NGHQ_CONTROL_SERVER)) {
+        return NGHQ_HTTP_WRONG_STREAM;
+      } else if ((stream->stream_id == NGHQ_CONTROL_CLIENT) &&
+                 (session->role == NGHQ_ROLE_CLIENT)) {
+        return NGHQ_HTTP_WRONG_STREAM;
+      } else if ((stream->stream_id == NGHQ_CONTROL_SERVER) &&
+                 (session->role == NGHQ_ROLE_SERVER)) {
+        return NGHQ_HTTP_WRONG_STREAM;
+      }
+
       parse_priority_frame (stream->recv_buf->buf, stream->recv_buf->buf_len,
                             &flags, &request_id, &dependency_id, &weight);
+
+      DEBUG("TODO: Process priority frames\n");
 
       break;
     }
@@ -1206,10 +1267,18 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
       size_t num_hdrs;
       uint64_t push_id;
 
+      if (stream->recv_state == STATE_DONE) {
+        return NGHQ_REQUEST_CLOSED;
+      }
+
       to_process = parse_push_promise_frame (session->hdr_ctx,
                                              stream->recv_buf->buf,
                                              stream->recv_buf->buf_len,
                                              &push_id, &hdrs, &num_hdrs);
+
+      if (push_id > session->max_push_promise) {
+        return NGHQ_HTTP_MALFORMED_FRAME;
+      }
 
       if (to_process < stream->recv_buf->buf_len) {
         nghq_stream* new_promised_stream = nghq_stream_init();
@@ -1251,11 +1320,11 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
 
       /* TODO: If this is invalid, send an error to remote peer */
       if (session->role != NGHQ_ROLE_SERVER) {
-        break;
+        return NGHQ_HTTP_MALFORMED_FRAME;
       }
 
       if (session->max_push_promise > max_push_id) {
-        break;
+        return NGHQ_HTTP_MALFORMED_FRAME;
       }
 
       session->max_push_promise = max_push_id;
@@ -1341,6 +1410,10 @@ int nghq_stream_ended (nghq_session* session, nghq_stream *stream) {
   while (stream->recv_buf != NULL) {
     nghq_io_buf_pop(&stream->recv_buf);
   }
+
+  stream->send_state = STATE_DONE;
+  stream->recv_state = STATE_DONE;
+  stream->flags ^= STREAM_FLAG_STARTED;
 
   free (stream);
 
