@@ -1422,10 +1422,76 @@ int nghq_stream_ended (nghq_session* session, nghq_stream *stream) {
 
 int nghq_stream_close (nghq_session* session, nghq_stream *stream,
                        uint16_t app_error_code) {
-  nghq_error status;
-  switch (app_error_code) {
+  int request_closing = 1, rv = 0;
+  nghq_error status = NGHQ_OK;
 
+  DEBUG("Stream %lu is closing with code 0x%4X\n", app_error_code);
+
+  switch (app_error_code) {
+    case QUIC_ERR_STOPPING:
+      /* TODO: Deal with this */
+      break;
+    case QUIC_ERR_HTTP_NO_ERROR:
+      /* Shutting down normally */
+      break;
+    case QUIC_ERR_HTTP_PUSH_REFUSED:
+      status = NGHQ_HTTP_PUSH_REFUSED;
+      break;
+    case QUIC_ERR_HTTP_INTERNAL_ERROR:
+      /* Deal with this - remote end is probably going away */
+      status = NGHQ_INTERNAL_ERROR;
+      break;
+    case QUIC_ERR_HTTP_PUSH_ALREADY_IN_CACHE:
+      /* Deal with this - call nghq_on_request_close_callback with status
+       * NGHQ_HTTP_PUSH_ALREADY_IN_CACHE */
+      status = NGHQ_PUSH_ALREADY_IN_CACHE;
+      break;
+    case QUIC_ERR_HTTP_REQUEST_CANCELLED:
+      status = NGHQ_NOT_INTERESTED;
+      break;
+    case QUIC_ERR_HTTP_HPACK_DECOMPRESSION_FAILED:
+      status = NGHQ_HDR_COMPRESS_FAILURE;
+      break;
+    case QUIC_ERR_HTTP_CONNECT_ERROR:
+      status = NGHQ_HTTP_CONNECT_ERROR;
+      break;
+    case QUIC_ERR_HTTP_EXCESSIVE_LOAD:
+      /* TODO: Deal with this */
+      break;
+    case QUIC_ERR_HTTP_VERSION_FALLBACK:
+      status = NGHQ_TRANSPORT_VERSION;
+      break;
+    case QUIC_ERR_HTTP_WRONG_STREAM:
+      status = NGHQ_HTTP_WRONG_STREAM;
+      break;
+    case QUIC_ERR_HTTP_PUSH_LIMIT_EXCEEDED:
+      status = NGHQ_PUSH_LIMIT_REACHED;
+      break;
+    case QUIC_ERR_HTTP_DUPLICATE_PUSH:
+      status = NGHQ_HTTP_DUPLICATE_PUSH;
+      break;
+    case QUIC_ERR_MALFORMED_DATA_FRAME:
+    case QUIC_ERR_MALFORMED_HEADERS_FRAME:
+    case QUIC_ERR_MALFORMED_PRIORITY_FRAME:
+    case QUIC_ERR_MALFORMED_CANCEL_PUSH_FRAME:
+    case QUIC_ERR_MALFORMED_SETTINGS_FRAME:
+    case QUIC_ERR_MALFORMED_PUSH_PROMISE_FRAME:
+    case QUIC_ERR_MALFORMED_GOAWAY_FRAME:
+    case QUIC_ERR_MALFORMED_MAX_PUSH_ID:
+      status = NGHQ_HTTP_MALFORMED_FRAME;
+      break;
+    default:
+      ERROR("Unknown HTTP/QUIC Error Code 0x%4X\n", app_error_code);
+      status = NGHQ_INTERNAL_ERROR;
   }
+
+  if (request_closing) {
+    session->callbacks.on_request_close_callback (session, status,
+                                                  stream->user_data);
+    rv = nghq_stream_ended (session, stream);
+  }
+
+  return rv;
 }
 
 int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id) {
