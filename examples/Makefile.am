@@ -34,11 +34,15 @@ multicast_receiver_LDADD = \
 multicast_receiver_CFLAGS = \
 	$(LIBEV_CFLAGS)
 multicast_receiver_SOURCES = \
+	multicast_interfaces.c \
+	multicast_interfaces.h \
 	multicast-receiver.c
 multicast_sender_LDADD = \
 	$(LIBEV_LIBS)
 multicast_sender_CFLAGS = \
 	$(LIBEV_CFLAGS)
 multicast_sender_SOURCES = \
+	multicast_interfaces.c \
+	multicast_interfaces.h \
 	multicast-sender.c
 

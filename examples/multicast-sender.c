@@ -9,15 +9,18 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <netdb.h>
 
 #include <ev.h>
 
 #include "nghq/nghq.h"
+#include "multicast_interfaces.h"
 
 #define _STR(a) #a
 #define STR(a) _STR(a)
-#define DEFAULT_MCAST_GRP     "232.0.0.1"
-#define DEFAULT_IFC_ADDR      "127.0.0.1"
+#define DEFAULT_MCAST_GRP_V4  "232.0.0.1"
+#define DEFAULT_IFC_ADDR_V4   "127.0.0.1"
+#define DEFAULT_MCAST_GRP_V6  "ff3e::8000:1"
 #define DEFAULT_MCAST_PORT    2000
 #define DEFAULT_MCAST_TTL     1
 #define DEFAULT_CONNECTION_ID 1
@@ -27,8 +30,8 @@ typedef struct server_session {
     ev_io socket_writable;
     ev_idle send_idle;
     int socket;
-    struct sockaddr_in mcast_addr;
-    struct sockaddr_in send_addr;
+    struct sockaddr_storage mcast_addr;
+    struct sockaddr_storage send_addr;
 } server_session;
 
 static char method_hdr[] = ":method";
@@ -227,6 +230,86 @@ static void send_idle_cb (EV_P_ ev_idle *w, int revents)
     ev_io_start (EV_DEFAULT_UC_ &sdata->socket_writable);
 }
 
+static int
+_name_and_port_to_sockaddr (struct sockaddr *addr, socklen_t addr_len,
+                            const char *addr_str, unsigned short port)
+{
+    struct addrinfo hints = {
+        AI_ADDRCONFIG, AF_UNSPEC, 0, 0, 0, NULL, NULL, NULL
+    };
+    struct addrinfo *addresses = NULL;
+    addr->sa_family = AF_UNSPEC;
+    if (getaddrinfo(addr_str, NULL, &hints, &addresses)) return 0;
+    for (struct addrinfo *ai = addresses; ai; ai = ai->ai_next) {
+        if ((ai->ai_family == AF_INET || ai->ai_family == AF_INET6) &&
+            addr_len >= ai->ai_addrlen) {
+            memcpy(addr, ai->ai_addr, ai->ai_addrlen);
+	    switch (ai->ai_family) {
+	    case AF_INET:
+		((struct sockaddr_in*)addr)->sin_port = htons(port);
+		break;
+	    case AF_INET6:
+		((struct sockaddr_in6*)addr)->sin6_port = htons(port);
+		break;
+	    }
+	    freeaddrinfo(addresses);
+	    return 1;
+	}
+    }
+    freeaddrinfo(addresses);
+    return 0;
+}
+
+static int
+_match_sockaddr (const struct sockaddr *addr1, const struct sockaddr *addr2)
+{
+    if (addr1 == addr2) return 1;
+    if (addr1->sa_family != addr2->sa_family) return 0;
+    switch (addr1->sa_family) {
+    case AF_INET: {
+            const struct sockaddr_in *sin1 = (const struct sockaddr_in*)addr1;
+            const struct sockaddr_in *sin2 = (const struct sockaddr_in*)addr2;
+            if (sin1->sin_port != sin2->sin_port) return 0;
+            if (sin1->sin_addr.s_addr != sin2->sin_addr.s_addr) return 0;
+        }
+        break;
+    case AF_INET6: {
+            const struct sockaddr_in6 *sin1 = (const struct sockaddr_in6*)addr1;
+            const struct sockaddr_in6 *sin2 = (const struct sockaddr_in6*)addr2;
+            if (sin1->sin6_port != sin2->sin6_port) return 0;
+            if (!IN6_ARE_ADDR_EQUAL(&sin1->sin6_addr, &sin2->sin6_addr))
+                return 0;
+        }
+        break;
+    default:
+	/* don't know how to compare, so just declare them not equal */
+        return 0;
+    }
+    return 1;
+}
+
+static void
+_bind_socket_interface (int sock, const struct sockaddr *addr, unsigned int idx)
+{
+    switch (addr->sa_family) {
+    case AF_INET: {
+            const struct sockaddr_in *sin = (const struct sockaddr_in*)addr;
+	    setsockopt (sock, SOL_IP, IP_MULTICAST_IF, &(sin->sin_addr.s_addr),
+                        sizeof (sin->sin_addr.s_addr));
+            bind (sock, addr, sizeof (struct sockaddr_in));
+        }
+        break;
+    case AF_INET6: {
+            setsockopt (sock, SOL_IPV6, IPV6_MULTICAST_IF, &idx, sizeof (idx));
+            bind (sock, addr, sizeof (struct sockaddr_in6));
+        }
+        break;
+    default:
+	fprintf (stderr, "Unknown address family, aborting.\n");
+	exit(3);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     struct sockaddr_in mcast_addr;
@@ -250,10 +333,29 @@ int main(int argc, char *argv[])
     int ttl = DEFAULT_MCAST_TTL;
     g_trans_settings.init_conn_id = DEFAULT_CONNECTION_ID;
     unsigned short send_port = DEFAULT_MCAST_PORT;
-    const char *mcast_grp = DEFAULT_MCAST_GRP;
-    const char *ifc_ip = DEFAULT_IFC_ADDR;
+    const char *mcast_grp = DEFAULT_MCAST_GRP_V4;
+    const char *ifc_ip = DEFAULT_IFC_ADDR_V4;
+    unsigned int ifc_idx = 0;
+    const char *default_mcast_grp = NULL;
+    const char *default_ifc_ip = NULL;
     int opt;
     int option_index = 0;
+
+    mcast_ifc_list *ifcs = NULL;
+
+    ifcs = get_multicast_interfaces();
+    if (ifcs) {
+	static char ip_buf[INET6_ADDRSTRLEN];
+        if (getnameinfo(ifcs->ifc_addr, ifcs->ifc_addrlen, ip_buf, sizeof(ip_buf), NULL, 0, NI_NUMERICHOST) == 0) {
+	    ifc_ip = ip_buf;
+	}
+	if (ifcs->ifc_addr->sa_family == AF_INET6) {
+	    mcast_grp = DEFAULT_MCAST_GRP_V6;
+	}
+    }
+
+    default_ifc_ip = ifc_ip;
+    default_mcast_grp = mcast_grp;
 
     while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
         switch (opt) {
@@ -299,9 +401,9 @@ int main(int argc, char *argv[])
 "  --ttl           -t <ttl>  The TTL to use for multicast [default: " STR(DEFAULT_MCAST_TTL) "].\n"
 "\n"
 "Arguments:\n"
-"  <mcast-grp> The multicast group to send on [default: " DEFAULT_MCAST_GRP "].\n"
-"  <ifc-addr>  The source interface address [default: " DEFAULT_IFC_ADDR "].\n"
-"\n");
+"  <mcast-grp> The multicast group to send on [default: %s].\n"
+"  <ifc-addr>  The source interface address [default: %s].\n"
+"\n", default_mcast_grp, default_ifc_ip);
     }
     if (usage) {
       return err_out;
@@ -319,29 +421,50 @@ int main(int argc, char *argv[])
     ev_default_loop (0);
 
     /* configure the group address */
-    g_server_session.mcast_addr.sin_family = AF_INET;
-    g_server_session.mcast_addr.sin_addr.s_addr = inet_addr (mcast_grp);
-    g_server_session.mcast_addr.sin_port = htons(send_port);
+    if (!_name_and_port_to_sockaddr(
+                         (struct sockaddr*)&g_server_session.mcast_addr,
+                         sizeof(g_server_session.mcast_addr),
+                         mcast_grp, send_port)) {
+        fprintf(stderr, "Unable to resolve multicast address \"%s\".\n",
+                mcast_grp);
+        exit(3);
+    }
 
     /* configure the sending address */
-    g_server_session.send_addr.sin_family = AF_INET;
-    g_server_session.send_addr.sin_addr.s_addr = inet_addr (ifc_ip);
-    g_server_session.send_addr.sin_port = 0;
+    if (!_name_and_port_to_sockaddr(
+                         (struct sockaddr*)&g_server_session.send_addr,
+                         sizeof(g_server_session.send_addr),
+                         ifc_ip, 0)) {
+        fprintf(stderr, "Unable to resolve source address \"%s\".\n", ifc_ip);
+        exit(3);
+    }
+
+    if (g_server_session.mcast_addr.ss_family !=
+        g_server_session.send_addr.ss_family) {
+        fprintf(stderr, "Multicast group and source interface address must be in the same address family.\n");
+	exit(2);
+    }
+
+    for (mcast_ifc_list *ifc = ifcs; ifc; ifc = ifc->ifc_next) {
+        if (_match_sockaddr((struct sockaddr*)&g_server_session.send_addr,
+                            ifc->ifc_addr)) {
+            ifc_idx = ifc->ifc_idx;
+	    break;
+	}
+    }
 
     /* Create sending socket */
-    g_server_session.socket = socket (AF_INET, SOCK_DGRAM|SOCK_NONBLOCK, 0);
+    g_server_session.socket = socket (g_server_session.mcast_addr.ss_family,
+                                      SOCK_DGRAM|SOCK_NONBLOCK, 0);
 
     /* configure send interface */
-    setsockopt (g_server_session.socket, IPPROTO_IP, IP_MULTICAST_IF,
-                &g_server_session.send_addr.sin_addr.s_addr,
-		sizeof(g_server_session.send_addr.sin_addr.s_addr));
+    _bind_socket_interface (g_server_session.socket,
+                            (struct sockaddr*)&g_server_session.send_addr,
+                            ifc_idx);
     setsockopt (g_server_session.socket, IPPROTO_IP, IP_MULTICAST_LOOP, &on,
 		sizeof(on));
     setsockopt (g_server_session.socket, IPPROTO_IP, IP_MULTICAST_TTL, &ttl,
                 sizeof(ttl));
-    bind (g_server_session.socket,
-          (struct sockaddr*)&g_server_session.send_addr,
-          sizeof(g_server_session.send_addr));
 
     ev_io_init (&g_server_session.socket_writable, socket_writable_cb,
 		g_server_session.socket, EV_WRITE);

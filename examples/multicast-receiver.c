@@ -8,16 +8,19 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <netdb.h>
 
 #include <ev.h>
 
-#include <nghq/nghq.h>
+#include "nghq/nghq.h"
+#include "multicast_interfaces.h"
 
 #define _STR(a) #a
 #define STR(a) _STR(a)
-#define DEFAULT_MCAST_GRP     "232.0.0.1"
+#define DEFAULT_MCAST_GRP_V4  "232.0.0.1"
+#define DEFAULT_MCAST_GRP_V6  "ff3e::8000:1"
 #define DEFAULT_MCAST_PORT    2000
-#define DEFAULT_SRC_ADDR      "127.0.0.1"
+#define DEFAULT_SRC_ADDR_V4   "127.0.0.1"
 #define DEFAULT_CONNECTION_ID 1
 
 typedef enum ReceivingHeaders {
@@ -185,11 +188,41 @@ static void recv_idle_cb (EV_P_ ev_idle *w, int revents)
     ev_io_start (EV_DEFAULT_UC_ &data->socket_readable);
 }
 
+static int
+_name_and_port_to_sockaddr(struct sockaddr *addr, socklen_t addr_len,
+                            const char *addr_str, unsigned short port)
+{
+    struct addrinfo hints = {
+        AI_ADDRCONFIG, AF_UNSPEC, 0, 0, 0, NULL, NULL, NULL
+    };
+    struct addrinfo *addresses = NULL;
+    addr->sa_family = AF_UNSPEC;
+    if (getaddrinfo(addr_str, NULL, &hints, &addresses)) return 0;
+    for (struct addrinfo *ai = addresses; ai; ai = ai->ai_next) {
+        if ((ai->ai_family == AF_INET || ai->ai_family == AF_INET6) &&
+            addr_len >= ai->ai_addrlen) {
+            memcpy(addr, ai->ai_addr, ai->ai_addrlen);
+            switch (ai->ai_family) {
+            case AF_INET:
+                ((struct sockaddr_in*)addr)->sin_port = htons(port);
+                break;
+            case AF_INET6:
+                ((struct sockaddr_in6*)addr)->sin6_port = htons(port);
+                break;
+            }
+            freeaddrinfo(addresses);
+            return 1;
+        }
+    }
+    freeaddrinfo(addresses);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     session_data this_session;
-    struct sockaddr_in mcast_addr;
-    struct sockaddr_in src_addr;
+    struct sockaddr_storage mcast_addr;
+    struct sockaddr_storage src_addr;
     struct group_source_req gsr;
 
     static const char short_opts[] = "hi:p:";
@@ -205,10 +238,29 @@ int main(int argc, char *argv[])
     int err_out = 0;
     g_trans_settings.init_conn_id = DEFAULT_CONNECTION_ID;
     unsigned short recv_port = DEFAULT_MCAST_PORT;
-    const char *mcast_grp = DEFAULT_MCAST_GRP;
-    const char *src_ip = DEFAULT_SRC_ADDR;
+    const char *mcast_grp = DEFAULT_MCAST_GRP_V4;
+    const char *src_ip = DEFAULT_SRC_ADDR_V4;
+    const char *default_mcast_grp = NULL;
+    const char *default_src_ip = NULL;
     int opt;
     int option_index = 0;
+
+    mcast_ifc_list *ifcs = NULL;
+
+    ifcs = get_multicast_interfaces();
+    if (ifcs) {
+        static char ip_buf[INET6_ADDRSTRLEN];
+        if (getnameinfo(ifcs->ifc_addr, ifcs->ifc_addrlen, ip_buf, sizeof(ip_buf), NULL, 0, NI_NUMERICHOST) == 0) {
+            src_ip = ip_buf;
+        }
+        if (ifcs->ifc_addr->sa_family == AF_INET6) {
+            mcast_grp = DEFAULT_MCAST_GRP_V6;
+        }
+    }
+
+    default_src_ip = src_ip;
+    default_mcast_grp = mcast_grp;
+
     while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
         switch (opt) {
         case 'h':
@@ -247,9 +299,9 @@ int main(int argc, char *argv[])
 "  --connection-id -i <id>   The connection ID to expect [default: " STR(DEFAULT_CONNECTION_ID) "].\n"
 "\n"
 "Arguments:\n"
-"  <mcast-grp> The multicast group to receive on [default: " DEFAULT_MCAST_GRP "].\n"
-"  <src-addr>  The multicast source address [default: " DEFAULT_SRC_ADDR "].\n"
-"\n");
+"  <mcast-grp> The multicast group to receive on [default: %s].\n"
+"  <src-addr>  The multicast source address [default: %s].\n"
+"\n", default_mcast_grp, default_src_ip);
     }
     if (usage) {
       return err_out;
@@ -267,23 +319,46 @@ int main(int argc, char *argv[])
     ev_default_loop (0);
 
     /* make the connection */
-    mcast_addr.sin_family = AF_INET;
-    mcast_addr.sin_addr.s_addr = inet_addr (mcast_grp);
-    mcast_addr.sin_port = htons(recv_port);
+    if (!_name_and_port_to_sockaddr((struct sockaddr*)&mcast_addr, sizeof(mcast_addr), mcast_grp, recv_port)) {
+        fprintf(stderr, "Unable to resolve multicast address \"%s\".\n",
+                mcast_grp);
+        exit(3);
+    }
 
-    src_addr.sin_family = AF_INET;
-    src_addr.sin_addr.s_addr = inet_addr (src_ip);
-    src_addr.sin_port = 0;
+    if (!_name_and_port_to_sockaddr((struct sockaddr*)&src_addr, sizeof(src_addr), src_ip, 0)) {
+        fprintf(stderr, "Unable to resolve source address \"%s\".\n",
+                src_ip);
+        exit(3);
+    }
+
+    if (mcast_addr.ss_family != src_addr.ss_family) {
+        fprintf(stderr,
+"Multicast group and source address must be the same address family.\n");
+        exit(2);
+    }
 
     gsr.gsr_interface = 0;
-    memcpy(&gsr.gsr_group, &mcast_addr, sizeof(mcast_addr));
-    memcpy(&gsr.gsr_source, &src_addr, sizeof(src_addr));
+    socklen_t addrlen = 0;
+    int sol = SOL_IP;
+    switch (mcast_addr.ss_family) {
+    case AF_INET:
+        addrlen = sizeof(struct sockaddr_in);
+        /* sol = SOL_IP; */
+        break;
+    case AF_INET6:
+        addrlen = sizeof(struct sockaddr_in6);
+        sol = SOL_IPV6;
+        break;
+    }
+    memcpy(&gsr.gsr_group, &mcast_addr, addrlen);
+    memcpy(&gsr.gsr_source, &src_addr, addrlen);
 
-    this_session.socket = socket (AF_INET, SOCK_DGRAM|SOCK_NONBLOCK, 0);
+    this_session.socket = socket (mcast_addr.ss_family,
+                                  SOCK_DGRAM|SOCK_NONBLOCK, 0);
     bind (this_session.socket, (struct sockaddr*)&mcast_addr,
-            sizeof(mcast_addr));
-    setsockopt (this_session.socket, IPPROTO_IP, MCAST_JOIN_SOURCE_GROUP, &gsr,
-            sizeof(gsr));
+            addrlen);
+    setsockopt (this_session.socket, sol, MCAST_JOIN_SOURCE_GROUP, &gsr,
+                sizeof(gsr));
 
     /* create libev events */
     ev_io_init (&this_session.socket_readable, socket_readable_cb,
