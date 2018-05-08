@@ -131,13 +131,13 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
 
 static int on_push_cancel_cb (nghq_session *session, void *request_user_data)
 {
-    printf("Push cancelled");
+    printf("Push cancelled\n");
 }
 
 static int on_request_close_cb  (nghq_session *session, nghq_error status,
                                  void *request_user_data)
 {
-    printf("Request finished");
+    printf("Request finished\n");
 }
 
 static nghq_callbacks g_callbacks = {
