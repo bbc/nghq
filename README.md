@@ -1,19 +1,19 @@
 # nghq
 
-**nghq** is a HTTP framing layer built ontop of
+**nghq** is a HTTP framing layer built on top of
 [ngtcp2](https://github.com/ngtcp2/ngtcp2) and aims to provide support for the
 HTTP/QUIC mapping for running HTTP over IETF QUIC.
 
-**NOTE: NGHQ IN IT'S CURRENT FORM ONLY SUPPORTS [draft-pardue-quic-http-mcast-02](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02), UNTIL SUCH A TIME AS UNICAST HTTP/QUIC IS ADDED**
+## Caveats
 
-Currently, **nghq** only supports
-[draft-ietf-quic-http-09](https://tools.ietf.org/html/draft-ietf-quic-http-09) 
-as draft-09 is the last to still use
-[HPACK](https://tools.ietf.org/html/rfc7541) for header compression. Later
-versions of quic-http mandate the use of
-[QPACK](https://github.com/quicwg/base-drafts/blob/master/draft-ietf-quic-qpack.md)
-, however there is currently no readily available QPACK encoder and decoder. 
-Until such time as this issue is resolved, then this library relies on the
+**NOTE: In its current form, nghq implements only the parts of the HTTP/QUIC specification required by [draft-pardue-quic-http-mcast-02](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02)**.
+
+In particular, it only supports [draft-ietf-quic-http-09](https://tools.ietf.org/html/draft-ietf-quic-http-09) 
+as draft-09 is the last to still use [HPACK](https://tools.ietf.org/html/rfc7541)
+for header compression. Later versions of quic-http mandate the use of
+[QPACK](https://github.com/quicwg/base-drafts/blob/master/draft-ietf-quic-qpack.md).
+However, there is currently no readily available QPACK encoder and decoder. 
+Until such time as this issue is resolved, this library relies on the legacy
 HPACK encoder and decoder from
 [nghttp2](https://nghttp2.org/documentation/tutorial-hpack.html).
 
