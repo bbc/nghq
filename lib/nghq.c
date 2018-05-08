@@ -470,6 +470,57 @@ nghq_srv_fail_session:
 }
 
 int nghq_session_close (nghq_session *session, nghq_error reason) {
+  nghq_stream *it;
+  if (session == NULL) {
+    return NGHQ_SESSION_CLOSED;
+  }
+
+  /* Close any running streams - iterate from first non-0 stream */
+  it = nghq_stream_id_map_find(session->transfers, 0);
+  it = nghq_stream_id_map_iterator(session->transfers, it);
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    if (session->role == NGHQ_ROLE_SERVER) {
+      nghq_stream* stream4 = nghq_stream_id_map_find (session->transfers, 4);
+      if (stream4 != NULL) {
+        /* https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02#section-5.5 */
+        const nghq_header req[] = {
+            {(uint8_t *) ":method", 7, (uint8_t *) "GET", 3},
+            {(uint8_t *) ":path", 5, (uint8_t *) "goaway", 6},
+            {(uint8_t *) "Connection", 10, (uint8_t *) "close", 5}
+        };
+        const nghq_header resp[] = {
+            {(uint8_t *) ":status", 7, (uint8_t *) "200", 3},
+            {(uint8_t *) "Connection", 10, (uint8_t *) "close", 5}
+        };
+        nghq_submit_push_promise(session, stream4->user_data, req, 3,
+                                 (void *) stream4);
+        nghq_feed_headers (session, resp, 2, 1, (void *) stream4);
+      }
+    }
+  } else if (session->mode == NGHQ_MODE_UNICAST) {
+    uint8_t* closebuf;
+    ssize_t rv;
+    closebuf = (uint8_t *) malloc (session->transport_settings.max_packet_size);
+    rv = ngtcp2_conn_write_connection_close (session->ngtcp2_session, closebuf,
+           session->transport_settings.max_packet_size, 0, get_timestamp_now());
+    if (rv < 0) {
+      switch (rv) {
+        case NGTCP2_ERR_NOMEM:
+          return NGHQ_OUT_OF_MEMORY;
+        case NGTCP2_ERR_NOBUF:
+        case NGTCP2_ERR_CALLBACK_FAILURE:
+          return NGHQ_INTERNAL_ERROR;
+        case NGTCP2_ERR_INVALID_STATE:
+          return NGHQ_SESSION_CLOSED;
+        case NGTCP2_ERR_PKT_NUM_EXHAUSTED:
+          return NGHQ_TRANSPORT_PROTOCOL;
+        default:
+          return NGHQ_ERROR;
+      }
+    }
+    nghq_io_buf_new(&session->send_buf, closebuf, rv, 1);
+  }
+
   return NGHQ_OK;
 }
 
