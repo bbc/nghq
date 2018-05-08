@@ -147,6 +147,8 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
   _create_frame(NGHQ_FRAME_TYPE_HEADERS, 0, hdr_block, block_to_write,
                 *frame + push_stream_header_len, *frame_len);
 
+  free(hdr_block);
+
   *frame_len += push_stream_header_len;
 
   return (ssize_t) hdrs_compressed;
@@ -293,6 +295,8 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
   _make_varlen_int(*frame + header_length, push_id);
 
   memcpy(*frame + header_length + push_id_length, hdr_block, block_to_write);
+
+  free (hdr_block);
 
   return (ssize_t) hdrs_compressed;
 }

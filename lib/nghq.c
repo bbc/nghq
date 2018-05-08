@@ -100,6 +100,9 @@ nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
 
   nghq_init_hdr_compression_ctx(&session->hdr_ctx);
 
+  session->send_buf = NULL;
+  session->recv_buf = NULL;
+
   return session;
 }
 
@@ -470,7 +473,24 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
   return NGHQ_OK;
 }
 
+void _clean_up_streams (nghq_session *session, nghq_map_ctx *strm_ctx) {
+  if (strm_ctx != NULL) {
+    nghq_stream *stream = nghq_stream_id_map_iterator(strm_ctx, NULL);
+    while (stream != NULL) {
+      uint64_t stream_id = stream->stream_id;
+      nghq_stream_ended(session, stream);
+      stream = nghq_stream_id_map_remove (strm_ctx, stream_id);
+    }
+    nghq_stream_id_map_destroy (strm_ctx);
+  }
+}
+
 int nghq_session_free (nghq_session *session) {
+  _clean_up_streams (session, session->transfers);
+  _clean_up_streams (session, session->promises);
+  nghq_free_hdr_compression_ctx (session->hdr_ctx);
+  nghq_io_buf_clear (&session->send_buf);
+  nghq_io_buf_clear (&session->recv_buf);
   free (session);
   return NGHQ_OK;
 }

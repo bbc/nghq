@@ -69,4 +69,14 @@ void nghq_io_buf_pop (nghq_io_buf** list) {
   free (node);
 }
 
-
+void nghq_io_buf_clear (nghq_io_buf** list) {
+  while (*list != NULL) {
+    nghq_io_buf* node = *list;
+    *list = node->next_buf;
+    free (node->buf);
+    node->send_pos = node->buf = NULL;
+    node->remaining = node->buf_len = 0;
+    node->complete = 0;
+    free (node);
+  }
+}

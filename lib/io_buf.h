@@ -67,4 +67,9 @@ void nghq_io_buf_push (nghq_io_buf** list, nghq_io_buf* push);
  */
 void nghq_io_buf_pop (nghq_io_buf** list);
 
+/**
+ * @brief Completely deletes an IO Buffer and all buffers within
+ */
+void nghq_io_buf_clear (nghq_io_buf** list);
+
 #endif /* LIB_IO_BUF_H_ */
