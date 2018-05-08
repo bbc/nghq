@@ -62,6 +62,10 @@ This software is licensed under an MIT License. See the COPYING file for more.
 
 ## Contributing
 
+If you have a feature request or want to report a bug, we'd be happy to hear
+from you. Please either raise an issue, or fork the project and send us a pull
+request.
+
 ## Authors
 
 This software was written by [Sam Hurst](https://github.com/samhurst) with
