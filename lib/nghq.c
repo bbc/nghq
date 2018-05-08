@@ -203,6 +203,7 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
     if (result < 0) {
       ERROR("Failed to fake writing the client initial packet: %d %s\n",
             result, ngtcp2_strerror(result));
+      free (init_buf);
       goto nghq_client_fail_conn;
     }
 
@@ -215,6 +216,7 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
                                     fake_server_handshake, len_server_hs,
                                     get_timestamp_now());
     free (fake_server_handshake);
+    free (init_buf);
 
     if (result < 0) {
       ERROR("Failed to submit fake server handshake to client instance: %s\n",
@@ -542,6 +544,7 @@ int nghq_session_free (nghq_session *session) {
   nghq_free_hdr_compression_ctx (session->hdr_ctx);
   nghq_io_buf_clear (&session->send_buf);
   nghq_io_buf_clear (&session->recv_buf);
+  ngtcp2_conn_del (session->ngtcp2_session);
   free (session);
   return NGHQ_OK;
 }
@@ -568,12 +571,14 @@ int nghq_session_recv (nghq_session *session) {
     ssize_t socket_rv = session->callbacks.recv_callback(session, buf, buflen,
                                                    session->session_user_data);
     if (socket_rv < 0) {
+      free (buf);
       /* errors */
       if (socket_rv == NGHQ_EOF) {
         return NGHQ_SESSION_CLOSED;
       }
       return NGHQ_ERROR;
     } else if (socket_rv == 0) {
+      free (buf);
       /* no more data to read */
       recv = 0;
     } else {
@@ -708,13 +713,16 @@ int nghq_session_send (nghq_session *session) {
     rv = nghq_write_send_buffer (session);
 
     if (last_data) {
+      nghq_stream* to_del;
       DEBUG("Ending stream %lu\n", it->stream_id);
       if (session->callbacks.on_request_close_callback != NULL) {
         session->callbacks.on_request_close_callback(session, it->status,
                                                      it->user_data);
       }
       it->send_state = STATE_DONE;
+      to_del = it;
       it = nghq_stream_id_map_remove (session->transfers, it->stream_id);
+      nghq_stream_ended(session, to_del);
       if (it == NULL) {
         break;
       }
@@ -1271,20 +1279,26 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
                                         &num_hdrs);
 
       if (hdrs != NULL) {
-        int i;
+        int rv;
+        uint8_t flags = 0;
 
         if (STREAM_STARTED(stream->flags)) {
-          session->callbacks.on_begin_headers_callback(session,
-              NGHQ_HT_HEADERS, session->session_user_data, stream->user_data);
+          rv = session->callbacks.on_begin_headers_callback(session,
+                    NGHQ_HT_HEADERS, session->session_user_data,
+                    stream->user_data);
+          if (rv != NGHQ_OK) {
+            return rv;
+          }
         }
 
-        for (i = 0; i < num_hdrs; i++) {
-          uint8_t flags = 0;
-          if (stream->recv_state >= STATE_HDRS) {
-            flags += NGHQ_HEADERS_FLAGS_TRAILERS;
-          }
-          session->callbacks.on_headers_callback (session, flags, hdrs[i],
-                                                   stream->user_data);
+        if (stream->recv_state >= STATE_HDRS) {
+          flags += NGHQ_HEADERS_FLAGS_TRAILERS;
+        }
+
+        rv = nghq_deliver_headers (session, flags, hdrs, num_hdrs,
+                                   stream->user_data);
+        if (rv != 0) {
+          return rv;
         }
 
         stream->headers_off = off;
@@ -1361,17 +1375,20 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
         nghq_stream_id_map_add(session->promises, push_id,
                                new_promised_stream);
         if (hdrs != NULL) {
-          int i;
+          int rv;
 
-          session->callbacks.on_begin_headers_callback(session,
-              NGHQ_HT_PUSH_PROMISE, session->session_user_data,
-              new_promised_stream->user_data);
+          rv = session->callbacks.on_begin_headers_callback(session,
+                    NGHQ_HT_PUSH_PROMISE, session->session_user_data,
+                    new_promised_stream->user_data);
+          if (rv != NGHQ_OK) {
+            return rv;
+          }
           new_promised_stream->recv_state = STATE_HDRS;
 
-          for (i = 0; i < num_hdrs; i++) {
-            uint8_t flags = 0;
-            session->callbacks.on_headers_callback (session, flags, hdrs[i],
-                                             new_promised_stream->user_data);
+          rv = nghq_deliver_headers (session, 0, hdrs, num_hdrs,
+                                     new_promised_stream->user_data);
+          if (rv != NGHQ_OK) {
+            return rv;
           }
         }
       }
@@ -1433,6 +1450,25 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
   return NGHQ_OK;
 }
 
+int nghq_deliver_headers (nghq_session* session, uint8_t flags,
+                          nghq_header **hdrs, size_t num_hdrs,
+                          void *request_user_data) {
+  int i, rv = NGHQ_OK;
+
+  for (i = 0; i < num_hdrs; i++) {
+    if (rv == NGHQ_OK) {
+      rv = session->callbacks.on_headers_callback(session, flags, hdrs[i],
+                                                  request_user_data);
+    }
+    free (hdrs[i]->name);
+    free (hdrs[i]->value);
+    free (hdrs[i]);
+  }
+  free (hdrs);
+
+  return rv;
+}
+
 int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
                            uint8_t* buf, size_t buflen) {
   int rv = NGHQ_INTERNAL_ERROR;
@@ -1475,8 +1511,6 @@ int nghq_write_send_buffer (nghq_session* session) {
  * Call this if a stream has naturally ended to clean up the stream object
  */
 int nghq_stream_ended (nghq_session* session, nghq_stream *stream) {
-  nghq_stream_id_map_remove (session->transfers, stream->stream_id);
-
   while (stream->send_buf != NULL) {
     nghq_io_buf_pop(&stream->send_buf);
   }

@@ -121,6 +121,10 @@ struct nghq_session {
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
                            const uint8_t* data, size_t datalen, size_t off);
 
+int nghq_deliver_headers (nghq_session* session, uint8_t flags,
+                          nghq_header **hdrs, size_t num_hdrs,
+                          void *request_user_data);
+
 int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
                            uint8_t* buf, size_t buflen);
 

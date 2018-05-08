@@ -223,4 +223,5 @@ void nghq_free_hdr_compression_ctx(nghq_hdr_compression_ctx *ctx) {
       nghttp2_hd_deflate_del(ctx->deflater);
     }
   }
+  free (ctx);
 }
