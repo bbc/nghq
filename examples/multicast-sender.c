@@ -59,6 +59,12 @@ static const nghq_header *g_request_hdrs[] = {
   &method_header, &path_header, &host_header, &user_agent_header
 };
 
+static char status_hdr[] = ":status";
+static char status_value[] = "200";
+static const nghq_header status_header = {
+  status_hdr, sizeof(status_hdr)-1, status_value, sizeof(status_value)-1
+};
+
 static char server_hdr[] = "Server";
 static char server_value[] = "NGHQ-Server/1.0 (GNU/Linux)";
 static const nghq_header server_header = {
@@ -76,7 +82,7 @@ static const nghq_header content_type_header = {
 };
 
 static const nghq_header *g_response_hdrs[] = {
-  &server_header, &date_header, &content_type_header
+  &status_header, &server_header, &date_header, &content_type_header
 };
 
 static const char g_response[] = "This is a test of the multicast HTTP/QUIC server push!";
