@@ -1132,7 +1132,16 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
 
 int nghq_end_request (nghq_session *session, nghq_error result,
                       void *request_user_data) {
-  return NGHQ_OK;
+  nghq_stream* stream = nghq_stream_id_map_stream_search (session->transfers,
+                                                          request_user_data);
+  if (stream == NULL) {
+    stream = nghq_stream_id_map_stream_search (session->promises,
+                                               request_user_data);
+    if (stream == NULL) {
+      return NGHQ_REQUEST_CLOSED;
+    }
+  }
+  return nghq_stream_cancel(session, stream, 0);
 }
 
 uint64_t nghq_get_max_client_requests (nghq_session *session) {
@@ -1505,6 +1514,21 @@ int nghq_write_send_buffer (nghq_session* session) {
     free (pop);
   }
   return rv;
+}
+
+/*
+ * Call this method if you want to stop a stream that is currently running.
+ *
+ * If error is non-zero, then it's reported to ngtcp2 that it's closing for
+ * an internal error, instead of just closing the stream ID.
+ */
+int nghq_stream_cancel (nghq_session* session, nghq_stream *stream, int error) {
+  uint16_t app_error_code = QUIC_ERR_HTTP_NO_ERROR;
+  if (error) {
+    app_error_code = QUIC_ERR_HTTP_INTERNAL_ERROR;
+  }
+  return ngtcp2_conn_shutdown_stream (session->ngtcp2_session,
+                                      stream->stream_id, app_error_code);
 }
 
 /*

@@ -222,6 +222,8 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
   nghq_session* session = (nghq_session *) user_data;
   nghq_stream* stream = nghq_stream_id_map_find(session->transfers, stream_id);
   size_t data_offset = 0;
+  int rv;
+
   if (stream == NULL) {
     if (CLIENT_REQUEST_STREAM(stream_id)) {
       /* New stream time! */
@@ -262,8 +264,13 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
     abort();
   }
 
-  return nghq_recv_stream_data(session, stream, data + data_offset,
-                               datalen - data_offset, stream_offset);
+  rv = nghq_recv_stream_data(session, stream, data + data_offset,
+                             datalen - data_offset, stream_offset);
+  if (rv == NGHQ_NOT_INTERESTED) {
+    /* Client has indicated it doesn't care about this stream anymore, so stop */
+    nghq_stream_cancel (session, stream, 0);
+  }
+  return rv;
 }
 
 int nghq_transport_stream_close (ngtcp2_conn *conn, uint64_t stream_id,
