@@ -218,6 +218,11 @@ _name_and_port_to_sockaddr(struct sockaddr *addr, socklen_t addr_len,
     return 0;
 }
 
+static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents)
+{
+    ev_break (loop, EVBREAK_ALL);
+}
+
 int main(int argc, char *argv[])
 {
     session_data this_session;
@@ -317,6 +322,10 @@ int main(int argc, char *argv[])
 
     /* Initialise libev */
     ev_default_loop (0);
+
+    ev_signal signal_watcher;
+    ev_signal_init (&signal_watcher, sigint_cb, SIGINT);
+    ev_signal_start (EV_DEFAULT_UC_ &signal_watcher);
 
     /* make the connection */
     if (!_name_and_port_to_sockaddr((struct sockaddr*)&mcast_addr, sizeof(mcast_addr), mcast_grp, recv_port)) {
