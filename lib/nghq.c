@@ -143,10 +143,6 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
     NULL,
     NULL,
     nghq_transport_recv_stream0_data,
-    nghq_transport_send_pkt,
-    nghq_transport_send_frame,
-    nghq_transport_recv_pkt,
-    nghq_transport_recv_frame,
     nghq_transport_handshake_completed,
     nghq_transport_recv_version_negotiation,
     nghq_transport_encrypt,   /* TODO: Do we need to replace these with    */
@@ -165,6 +161,8 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
   uint64_t init_conn_id = rand64();
 
   ngtcp2_settings tcp2_settings;
+  tcp2_settings.initial_ts = get_timestamp_now();
+  tcp2_settings.log_printf = nghq_transport_debug;
   tcp2_settings.max_stream_data = 256 * 1024;
   tcp2_settings.max_data = 1 * 1024 * 1024;
   tcp2_settings.max_stream_id_bidi = session->max_open_requests;
@@ -195,10 +193,9 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
                                       quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC,
                                       quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
 
-    result = ngtcp2_conn_write_pkt(session->ngtcp2_session,
-                                   init_buf,
+    result = ngtcp2_conn_handshake(session->ngtcp2_session, init_buf,
                                    session->transport_settings.max_packet_size,
-                                   get_timestamp_now());
+                                   NULL, 0, get_timestamp_now());
 
     if (result < 0) {
       ERROR("Failed to fake writing the client initial packet: %d %s\n",
@@ -210,8 +207,10 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
     uint8_t *fake_server_handshake;
     size_t len_server_hs = get_fake_server_handshake_packet (
         session->connection_id, 1, &fake_server_handshake);
-    result = ngtcp2_conn_recv(session->ngtcp2_session, fake_server_handshake,
-                              len_server_hs, get_timestamp_now());
+    result = ngtcp2_conn_handshake (session->ngtcp2_session, init_buf,
+                                    session->transport_settings.max_packet_size,
+                                    fake_server_handshake, len_server_hs,
+                                    get_timestamp_now());
     free (fake_server_handshake);
 
     if (result < 0) {
@@ -281,10 +280,6 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     nghq_transport_recv_client_initial,
     nghq_transport_send_server_handshake,
     nghq_transport_recv_stream0_data,
-    nghq_transport_send_pkt,
-    nghq_transport_send_frame,
-    nghq_transport_recv_pkt,
-    nghq_transport_recv_frame,
     nghq_transport_handshake_completed,
     nghq_transport_recv_version_negotiation,
     nghq_transport_encrypt,   /* TODO: Do we need to replace these with    */
@@ -300,6 +295,8 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
   };
 
   ngtcp2_settings tcp2_settings;
+  tcp2_settings.initial_ts = get_timestamp_now();
+  tcp2_settings.log_printf = nghq_transport_debug;
   tcp2_settings.max_stream_data = 256 * 1024;
   tcp2_settings.max_data = 1 * 1024 * 1024;
   tcp2_settings.max_stream_id_bidi = session->max_open_requests;
@@ -322,13 +319,13 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
   if (session->mode == NGHQ_MODE_MULTICAST) {
     ngtcp2_pkt_hd hd;
     ngtcp2_transport_params params;
-    uint8_t *buf;
+    uint8_t *in_buf, *out_buf;
     size_t len_client_init;
-    ssize_t encoded_params_size;
+    ssize_t encoded_params_size = 128;
 
     len_client_init = get_fake_client_initial_packet (session->connection_id,
-                                                      0, &buf);
-    result = ngtcp2_accept(&hd, buf, len_client_init);
+                                                      0, &in_buf);
+    result = ngtcp2_accept(&hd, in_buf, len_client_init);
     if (result < 0) {
       ERROR("The fake client initial packet was not accepted by ngtcp2: %s\n",
             ngtcp2_strerror(result));
@@ -336,47 +333,66 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     }
     session->connection_id = hd.conn_id;
 
-    result = ngtcp2_conn_recv(session->ngtcp2_session, buf, len_client_init,
-                              get_timestamp_now());
-    free (buf);
-    if (result != 0) {
-      ERROR("ngtcp2_conn_recv encountered an error: %s\n",
+    out_buf = (uint8_t *) malloc(128);
+    if (out_buf == NULL) {
+      ERROR("Failed to allocate buffer for the encoded transport parameters\n");
+      goto nghq_srv_fail_conn;
+    }
+
+    nghq_stream *stream0 = nghq_stream_id_map_find (session->transfers, 0);
+    nghq_io_buf_new(&stream0->send_buf, out_buf, encoded_params_size, 0);
+    result = 1;
+    result = ngtcp2_conn_handshake(session->ngtcp2_session, out_buf, 128,
+                                   in_buf, len_client_init,
+                                   get_timestamp_now());
+
+    free (in_buf);
+    if (result < 0) {
+      ERROR("ngtcp2_conn_handshake encountered an error: %s\n",
             ngtcp2_strerror(result));
       goto nghq_srv_fail_conn;
     }
-    /* Handle the handshake */
-    result = ngtcp2_conn_get_local_transport_params(session->ngtcp2_session,
-           &params, NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS);
-    if (result != 0) {
-      ERROR("ngtcp2_conn_get_local_transport_params: %s\n",
-            ngtcp2_strerror(result));
-      goto nghq_srv_fail_conn;
-    }
+
+    ngtcp2_conn_get_local_transport_params(session->ngtcp2_session, &params,
+                             NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS);
     params.v.ee.len = 1;
     params.v.ee.supported_versions[0] = NGTCP2_PROTO_VER_D9;
     params.initial_max_stream_id_bidi = 4;
     params.initial_max_stream_id_uni = 0x3FFFFFFF;
 
-    buf = (uint8_t *) malloc(128);
-    if (buf == NULL) {
-      ERROR("Failed to allocate buffer for the encoded transport parameters\n");
-      goto nghq_srv_fail_conn;
-    }
-
-    encoded_params_size = ngtcp2_encode_transport_params(buf, 128,
+    encoded_params_size = ngtcp2_encode_transport_params(out_buf, 128,
                             NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS,
                             &params);
     if (encoded_params_size < 0) {
-      ERROR("ngtcp2_encode_transport_params: %s",
+      ERROR("ngtcp2_encode_transport_params: %s\n",
             ngtcp2_strerror((int) encoded_params_size));
-      free (buf);
+      free (out_buf);
       goto nghq_srv_fail_conn;
     }
 
-    nghq_stream *stream0 = nghq_stream_id_map_find (session->transfers, 0);
-    nghq_io_buf_new(&stream0->send_buf, buf, encoded_params_size, 0);
+    while (result > 0) {
+      result = ngtcp2_conn_handshake (session->ngtcp2_session, out_buf,
+                                      encoded_params_size, NULL, 0,
+                                      get_timestamp_now());
+      if (ngtcp2_conn_get_handshake_completed(session->ngtcp2_session)) {
+        break;
+      }
+    }
+    if (result < 0) {
+      ERROR("ngtcp2_conn_handshake encountered an error: %s\n",
+            ngtcp2_strerror(result));
+      goto nghq_srv_fail_conn;
+    }
 
-    ngtcp2_conn_handshake_completed(session->ngtcp2_session);
+    result = ngtcp2_conn_write_pkt(session->ngtcp2_session,
+                                   stream0->send_buf->buf,
+                                   stream0->send_buf->buf_len,
+                                   get_timestamp_now());
+    if (result < 0) {
+      ERROR("ngtcp2_conn_write_pkt Couldn't write handshake: %s\n",
+            ngtcp2_strerror(result));
+      goto nghq_srv_fail_conn;
+    }
 
     result = ngtcp2_conn_update_early_keys(session->ngtcp2_session,
                                            quic_mcast_magic,
@@ -399,17 +415,6 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
 
     ngtcp2_conn_set_aead_overhead(session->ngtcp2_session, 0);
 
-    DEBUG("Address of handshake buffer: %p (size: %lu)\n",
-          (void *) stream0->send_buf->buf, stream0->send_buf->buf_len);
-    result = ngtcp2_conn_write_pkt(session->ngtcp2_session,
-                                   stream0->send_buf->buf,
-                                   stream0->send_buf->buf_len,
-                                   get_timestamp_now());
-    if (result < 0) {
-      ERROR("Failed to send handshake packet: %s\n",
-            ngtcp2_strerror((int) result));
-    }
-
     result = ngtcp2_conn_update_rx_keys(session->ngtcp2_session,
                                         quic_mcast_magic,
                                         LENGTH_QUIC_MCAST_MAGIC,
@@ -427,8 +432,6 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
 
     nghq_io_buf_pop(&stream0->send_buf);
 
-    result = ngtcp2_conn_recv(session->ngtcp2_session, strm4pkt, len_strm4_pkt,
-                              get_timestamp_now());
     free (strm4pkt);
     if (result < 0) {
       ERROR("Failed to read stream 4 packet: %s\n",
@@ -1141,13 +1144,12 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
     case NGHQ_FRAME_TYPE_DATA: {
       uint8_t* outbuf = NULL;
       size_t outbuflen = 0;
-      size_t offset = off - stream->headers_off;
+      size_t offset = off - stream->headers_off - stream->body_off;
 
       switch (stream->recv_state) {
         case STATE_OPEN:
           DEBUG("Warning: DATA frame seen before any HEADERS for stream %lu\n",
                 stream->stream_id);
-          return NGHQ_REQUEST_CLOSED;
         case STATE_HDRS:
           stream->recv_state = STATE_BODY;
         case STATE_BODY:
@@ -1166,7 +1168,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
         session->callbacks.on_data_recv_callback(session, 0, outbuf,
                                                  outbuflen, offset,
                                                  stream->user_data);
-        stream->body_off = off - stream->headers_off;
+        stream->body_off += (stream->recv_buf->buf_len - outbuflen);
       }
       break;
     }
@@ -1426,11 +1428,12 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
   int request_closing = 1, rv = 0;
   nghq_error status = NGHQ_OK;
 
-  DEBUG("Stream %lu is closing with code 0x%4X\n", app_error_code);
+  DEBUG("Stream %lu is closing with code 0x%04X\n", stream->stream_id,
+        app_error_code);
 
   switch (app_error_code) {
     case QUIC_ERR_STOPPING:
-      /* TODO: Deal with this */
+      /* TODO: ngtcp2 currently uses 0 to mean closed nicely, not STOPPING */
       break;
     case QUIC_ERR_HTTP_NO_ERROR:
       /* Shutting down normally */
@@ -1499,14 +1502,7 @@ int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id) {
   return NGHQ_OK;
 }
 
-void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_ack *ack) {
-  /*
-   * Generate a fake response to the ACK from the other end.
-   */
-}
-
-void nghq_mcast_fake_stream_ack (nghq_session* session, const ngtcp2_pkt_hd *hd,
-                                 const ngtcp2_stream *stream) {
+void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd) {
   /*
    * Generate a fake ACK to feed back into ngtcp2 to keep it happy that
    * everything sent has been successfully received.
@@ -1563,14 +1559,9 @@ int nghq_mcast_swallow (nghq_session* session, const ngtcp2_pkt_hd *hd,
     DEBUG("Dropping packet not allowed by quic-http-mcast: %d\n", hd->type);
     return -1;
   }
-  /* ACKs are a special case as we need to fake responses into ngtcp2 */
-  if (hd->type == NGTCP2_FRAME_ACK) {
-    nghq_mcast_fake_ack(session, &fr->ack);
-    return -1;
-  }
   if (hd->type == NGTCP2_FRAME_STREAM) {
     DEBUG("Faking ACK for stream %lu", fr->stream.stream_id);
-    nghq_mcast_fake_stream_ack(session, hd, &fr->stream);
+    nghq_mcast_fake_ack(session, hd);
   }
   return 0;
 }

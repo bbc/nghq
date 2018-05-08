@@ -28,6 +28,8 @@
 
 #include <ngtcp2/ngtcp2.h>
 
+void nghq_transport_debug (void *user_data, const char *format, ...);
+
 ssize_t nghq_transport_send_client_initial (ngtcp2_conn *conn, uint32_t flags,
                                             uint64_t *ppkt_num,
                                             const uint8_t **pdest,
@@ -46,8 +48,9 @@ ssize_t nghq_transport_send_server_handshake (ngtcp2_conn *conn,
                                                 const uint8_t **pdest,
                                                 void *user_data);
 
-int nghq_transport_recv_stream0_data (ngtcp2_conn *conn, const uint8_t *data,
-                                      size_t datalen, void *user_data);
+int nghq_transport_recv_stream0_data (ngtcp2_conn *conn, uint64_t offset,
+                                      const uint8_t *data, size_t datalen,
+                                      void *user_data);
 
 /* DEBUGGING ONLY */
 int nghq_transport_send_pkt (ngtcp2_conn *conn, const ngtcp2_pkt_hd *hd,
@@ -90,9 +93,9 @@ ssize_t nghq_transport_decrypt (ngtcp2_conn *conn, uint8_t *dest,
                                 size_t adlen, void *user_data);
 
 int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
-                                     uint8_t fin, const uint8_t *data,
-                                     size_t datalen, void *user_data,
-                                     void *stream_user_data);
+                                     uint8_t fin, uint64_t stream_offset,
+                                     const uint8_t *data, size_t datalen,
+                                     void *user_data, void *stream_user_data);
 
 int nghq_transport_stream_close (ngtcp2_conn *conn, uint64_t stream_id,
                                  uint16_t app_error_code, void *user_data,

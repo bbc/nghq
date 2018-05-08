@@ -30,6 +30,15 @@
 #include "map.h"
 #include "util.h"
 
+void nghq_transport_debug (void *user_data, const char *format, ...) {
+  nghq_session *session = (nghq_session *) user_data;
+#ifdef DEBUGOUT
+  va_list args;
+  va_start (args, format);
+  vfprintf(stderr, format, args);
+#endif
+}
+
 ssize_t nghq_transport_send_client_initial (ngtcp2_conn *conn, uint32_t flags,
                                             uint64_t *ppkt_num,
                                             const uint8_t **pdest,
@@ -94,19 +103,26 @@ ssize_t nghq_transport_send_server_handshake (ngtcp2_conn *conn,
                                               const uint8_t **pdest,
                                               void *user_data) {
   DEBUG("nghq_transport_send_server_handshake(%p, %x, %lu, %p, %p)\n",
-        (void *) conn, flags, *ppkt_num, (void *) *pdest, user_data);
+        (void *) conn, flags, (void *) ppkt_num, (void *) *pdest, user_data);
   nghq_session *session = (nghq_session *) user_data;
   nghq_stream *stream = nghq_stream_id_map_find(session->transfers, 0);
   if (stream == NULL) {
+    ERROR("No stream0 object!\n");
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
-  *ppkt_num = 1;
+  if (ppkt_num != NULL) {
+    *ppkt_num = 1;
+  }
   *pdest = stream->send_buf->buf;
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    ngtcp2_conn_handshake_completed(session->ngtcp2_session);
+  }
   return stream->send_buf->buf_len;
 }
 
-int nghq_transport_recv_stream0_data (ngtcp2_conn *conn, const uint8_t *data,
-                                      size_t datalen, void *user_data) {
+int nghq_transport_recv_stream0_data (ngtcp2_conn *conn, uint64_t offset,
+                                      const uint8_t *data, size_t datalen,
+                                      void *user_data) {
   DEBUG("nghq_transport_recv_stream0_data(%p, %p, %lu, %p)\n", (void *) conn,
         (void *) data, datalen, user_data);
   int rv = NGHQ_OK;
@@ -121,44 +137,6 @@ int nghq_transport_recv_stream0_data (ngtcp2_conn *conn, const uint8_t *data,
 
   return rv;
 }
-
-/* DEBUGGING ONLY */
-int nghq_transport_send_pkt (ngtcp2_conn *conn, const ngtcp2_pkt_hd *hd,
-                             void *user_data) {
-  DEBUG("nghq_transport_send_pkt(%p, (%x, %x, %lu, %lu, %u), %p)\n",
-        (void *) conn, hd->flags, hd->type, hd->conn_id, hd->pkt_num,
-        hd->version, user_data);
-  return 0;
-}
-
-int nghq_transport_send_frame (ngtcp2_conn *conn, const ngtcp2_pkt_hd *hd,
-                               const ngtcp2_frame *fr, void *user_data) {
-  DEBUG("nghq_transport_send_frame(%p, (%x, %x, %lu, %lu, %u), ..., %p)\n",
-        (void *) conn, hd->flags, hd->type, hd->conn_id, hd->pkt_num,
-        hd->version, user_data);
-  nghq_session *session = (nghq_session *) user_data;
-  if (session->mode == NGHQ_MODE_MULTICAST) {
-    return nghq_mcast_swallow (session, hd, fr);
-  }
-  return 0;
-}
-
-int nghq_transport_recv_pkt (ngtcp2_conn *conn, const ngtcp2_pkt_hd *hd,
-                             void *user_data) {
-  DEBUG ("nghq_transport_recv_pkt(%p, (%x, %x, %lu, %lu, %u), %p)\n",
-        (void *) conn, hd->flags, hd->type, hd->conn_id, hd->pkt_num,
-        hd->version, user_data);
-  return 0;
-}
-
-int nghq_transport_recv_frame (ngtcp2_conn *conn, const ngtcp2_pkt_hd *hd,
-                               const ngtcp2_frame *fr, void *user_data) {
-  DEBUG ("nghq_transport_recv_frame(%p, (%x, %x, %lu, %lu, %u), ..., %p)\n",
-         (void *) conn, hd->flags, hd->type, hd->conn_id, hd->pkt_num,
-         hd->version, user_data);
-  return 0;
-}
-/*/DEBUGGING ONLY */
 
 int nghq_transport_handshake_completed (ngtcp2_conn *conn, void *user_data) {
   DEBUG ("nghq_transport_handshake_completed(%p, %p)\n", (void *) conn,
@@ -201,6 +179,18 @@ ssize_t nghq_transport_encrypt (ngtcp2_conn *conn, uint8_t *dest,
          "nonce(%lu), ad(%lu), %p)\n", (void *) conn, destlen, plaintextlen,
          keylen, noncelen, adlen, user_data);
   nghq_session *session = (nghq_session *) user_data;
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    ngtcp2_pkt_hd hdr;
+    ngtcp2_frame frame;
+    ssize_t read = ngtcp2_pkt_decode_hd (&hdr, plaintext, plaintextlen);
+    while (read < plaintextlen) {
+      read += ngtcp2_pkt_decode_frame(&frame, plaintext + read,
+                                      plaintextlen - read);
+      if (nghq_mcast_swallow (session, &hdr, &frame)) {
+        return -1;
+      }
+    }
+  }
   return session->callbacks.encrypt_callback (session, plaintext, plaintextlen,
                                               nonce, noncelen, ad, adlen,
                                               dest, destlen,
@@ -224,14 +214,14 @@ ssize_t nghq_transport_decrypt (ngtcp2_conn *conn, uint8_t *dest,
 }
 
 int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
-                                     uint8_t fin, const uint8_t *data,
-                                     size_t datalen, void *user_data,
-                                     void *stream_user_data) {
+                                     uint8_t fin, uint64_t stream_offset,
+                                     const uint8_t *data, size_t datalen,
+                                     void *user_data, void *stream_user_data) {
   DEBUG ("nghq_transport_recv_stream_data(%p, %lu, %x, data(%lu), %p, %p)\n",
          (void *) conn, stream_id, fin, datalen, user_data, stream_user_data);
   nghq_session* session = (nghq_session *) user_data;
   nghq_stream* stream = nghq_stream_id_map_find(session->transfers, stream_id);
-  size_t offset = 0;
+  size_t data_offset = 0;
   if (stream == NULL) {
     if (CLIENT_REQUEST_STREAM(stream_id)) {
       /* New stream time! */
@@ -241,9 +231,18 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
         return NGTCP2_ERR_NOMEM;
       }
       nghq_stream_id_map_add(session->transfers, stream_id, stream);
+
+      if ((stream_id == 4) && (session->mode == NGHQ_MODE_MULTICAST)) {
+        /*
+         * Don't feed the magic packet into nghq_recv_stream_data as it will
+         * upset it. Just return 0 so that stream 4 is at least open, ready
+         * to send our first PUSH_PROMISE
+         */
+        return 0;
+      }
     } else if (SERVER_PUSH_STREAM(stream_id)) {
       /* Find the server push stream! */
-      uint64_t push_id = _get_varlen_int(data, &offset);
+      uint64_t push_id = _get_varlen_int(data, &data_offset);
       stream = nghq_stream_id_map_find(session->promises, push_id);
       if (stream == NULL) {
         ERROR("Received new server push stream %lu, but Push ID %lu has not "
@@ -263,8 +262,8 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
     abort();
   }
 
-  return nghq_recv_stream_data(session, stream, data + offset,
-                               datalen - offset, 0);
+  return nghq_recv_stream_data(session, stream, data + data_offset,
+                               datalen - data_offset, stream_offset);
 }
 
 int nghq_transport_stream_close (ngtcp2_conn *conn, uint64_t stream_id,

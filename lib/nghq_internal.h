@@ -62,7 +62,7 @@ typedef struct {
   size_t        buf_idx;
   uint64_t      tx_offset;  /*Offset where all data before is acked by remote peer*/
   size_t        headers_off; /* Size of HEADERS blocks before BODY */
-  size_t        body_off; /* Size of BODY block */
+  size_t        body_off; /* Combined size of BODY headers on stream so far */
   void *        user_data;
   uint8_t       priority;
   nghq_stream_state recv_state;
