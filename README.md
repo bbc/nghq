@@ -4,6 +4,20 @@
 [ngtcp2](https://github.com/ngtcp2/ngtcp2) and aims to provide support for the
 HTTP/QUIC mapping for running HTTP over IETF QUIC.
 
+The **nghq** API is modelled after that of
+[nghttp2](https://nghttp2.org/documentation/). Applications will own the
+communicating socket and will feed data into the library via a series of calls,
+and act on callbacks from the library. There are a couple of important points
+to note:
+
+* **nghq** does not own the socket. The application is expected to read data
+from the socket and provide it to the library, and then send data from the
+library when it receives a callback containing data to be sent.
+* **nghq** does not do any encryption or decryption of the packets received.
+It is up to the application to manage the TLS context. The encrypt and decrypt
+callbacks will be fired when the library needs encryption or decryption to be
+done.
+
 ## Caveats
 
 **NOTE: In its current form, nghq implements only the parts of the HTTP/QUIC specification required by [draft-pardue-quic-http-mcast-02](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02)**.
