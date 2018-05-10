@@ -135,6 +135,7 @@ static int on_begin_headers_cb (nghq_session *session, nghq_headers_type type,
         push_request *req = (push_request*)request_user_data;
         req->headers_incoming = HEADERS_RESPONSE;
     }
+    return NGHQ_OK;
 }
 
 static int on_headers_cb (nghq_session *session, uint8_t flags,
@@ -144,6 +145,7 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
     printf("%c> %.*s: %.*s\n",
            ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'),
            (int) hdr->name_len, hdr->name, (int) hdr->value_len, hdr->value);
+    return NGHQ_OK;
 }
 
 static int on_data_recv_cb (nghq_session *session, uint8_t flags,
@@ -152,17 +154,20 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
 {
     printf("Received %zu bytes\n", len);
     printf("Body: %s\n", data);
+    return NGHQ_OK;
 }
 
 static int on_push_cancel_cb (nghq_session *session, void *request_user_data)
 {
     printf("Push cancelled\n");
+    return NGHQ_OK;
 }
 
 static int on_request_close_cb  (nghq_session *session, nghq_error status,
                                  void *request_user_data)
 {
     printf("Request finished\n");
+    return NGHQ_OK;
 }
 
 static nghq_callbacks g_callbacks = {
