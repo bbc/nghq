@@ -45,7 +45,7 @@ int _create_header (struct _temp_list **node, uint8_t* name, size_t namelen,
   if (*node == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
-  (*node)->header = (nghq_header *) malloc (sizeof(nghq_header *));
+  (*node)->header = (nghq_header *) malloc (sizeof(nghq_header));
   if ((*node)->header == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
