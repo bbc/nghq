@@ -19,6 +19,8 @@ It is up to the application to manage the TLS context. The encrypt and decrypt
 callbacks will be fired when the library needs encryption or decryption to be
 done.
 
+![nghq diagram](docs/nghq-libs-web.png)
+
 ## Caveats
 
 **NOTE: In its current form, nghq implements only the parts of the HTTP/QUIC specification required by [draft-pardue-quic-http-mcast-02](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02)**.
