@@ -1135,10 +1135,24 @@ int nghq_end_request (nghq_session *session, nghq_error result,
   nghq_stream* stream = nghq_stream_id_map_stream_search (session->transfers,
                                                           request_user_data);
   if (stream == NULL) {
+    uint8_t* buf;
+    size_t buflen;
+    int rv;
     stream = nghq_stream_id_map_stream_search (session->promises,
                                                request_user_data);
     if (stream == NULL) {
       return NGHQ_REQUEST_CLOSED;
+    }
+    /* Send a CANCEL_PUSH frame! */
+    rv = create_cancel_push_frame (stream->push_id, &buf, &buflen);
+    if (rv != NGHQ_OK) {
+      return rv;
+    }
+
+    if (session->role == NGHQ_ROLE_CLIENT) {
+      return nghq_queue_send_frame(session, NGHQ_CONTROL_CLIENT, buf, buflen);
+    } else { /* NGHQ_ROLE_SERVER */
+      return nghq_queue_send_frame(session, NGHQ_CONTROL_SERVER, buf, buflen);
     }
   }
   return nghq_stream_cancel(session, stream, 0);
