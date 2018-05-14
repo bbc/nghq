@@ -84,6 +84,7 @@ typedef enum {
   NGHQ_HTTP_DUPLICATE_PUSH = -72,
   NGHQ_HTTP_MALFORMED_FRAME = -73,
   NGHQ_HTTP_PUSH_REFUSED = -74,
+  NGHQ_HTTP_ALPN_FAILED = -75,
   /* QUIC Transport / ngtcp2 errors */
   NGHQ_TRANSPORT_ERROR = -100,
   NGHQ_TRANSPORT_CLOSED = -101,
@@ -313,6 +314,33 @@ extern ssize_t nghq_get_transport_params (nghq_session *session, uint8_t **buf);
  */
 extern int nghq_feed_transport_params (nghq_session *session,
                                        const uint8_t *buf, size_t buflen);
+
+/**
+ * @brief Select the HTTP/QUIC protocol version to use from ALPN
+ *
+ * During the handshake, the client will supply one or more supported HTTP/QUIC
+ * versions via ALPN. The server application should feed this version string in
+ * to the library here.
+ *
+ * If nghq supports one of the versions specified by the client, then the chosen
+ * version will be returned in @p proto. If nghq supports none of the versions
+ * specified by the client, this call will return with an error code and the
+ * value of @p proto is undefined. It is expected that the application will reply
+ * to the connected client with a TLS Alert if this function fails. You *must
+ * not* free any values returned in @p proto.
+ *
+ * @pstsm session A running NGHQ session
+ * @param buf The ALPN string
+ * @param buflen The length of the ALPN string
+ * @param proto The chosen HTTP/QUIC protocol version to be used
+ *
+ * @return The size of the ALPN string in @p proto
+ * @return NGHQ_SERVER_ONLY if @p session was a client session
+ * @return NGHQ_HTTP_ALPN_FAILED if no supported version was found in @p buf
+ */
+extern ssize_t nghq_select_alpn (nghq_session *session,
+                                 const uint8_t *buf, size_t buflen,
+                                 const uint8_t **proto);
 
 /*
  * Session Callbacks
