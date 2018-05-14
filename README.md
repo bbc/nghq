@@ -5,14 +5,15 @@
 HTTP/QUIC mapping for running HTTP over IETF QUIC.
 
 The **nghq** API is modelled after that of
-[nghttp2](https://nghttp2.org/documentation/). Applications will own the
-communicating socket and will feed data into the library via a series of calls,
-and act on callbacks from the library. There are a couple of important points
-to note:
+[nghttp2](https://nghttp2.org/documentation/). The application owns the
+communicating socket and feeds data into the library via a series of calls.
+The application is expected to act on callbacks from the library. There are a
+couple of important points to note:
 
 * **nghq** does not own the socket. The application is expected to read data
-from the socket and provide it to the library, and then send data from the
-library when it receives a callback containing data to be sent.
+from the socket and provide it to the library. When the library has some data
+to send, it will call back into the application with the data to be sent on the
+application's socket.
 * **nghq** does not do any encryption or decryption of the packets received.
 It is up to the application to manage the TLS context. The encrypt and decrypt
 callbacks will be fired when the library needs encryption or decryption to be
