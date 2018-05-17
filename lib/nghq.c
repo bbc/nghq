@@ -485,18 +485,27 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
       nghq_stream* stream4 = nghq_stream_id_map_find (session->transfers, 4);
       if (stream4 != NULL) {
         /* https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02#section-5.5 */
-        const nghq_header req[] = {
-            {(uint8_t *) ":method", 7, (uint8_t *) "GET", 3},
-            {(uint8_t *) ":path", 5, (uint8_t *) "goaway", 6},
-            {(uint8_t *) "Connection", 10, (uint8_t *) "close", 5}
+#define MAKE_HEADER(key, field, value) \
+        static const char key##_field[] = field; \
+        static const char key##_value[] = value; \
+        static const nghq_header key = {(uint8_t *) key##_field, sizeof(key##_field)-1, (uint8_t *) key##_value, sizeof(key##_value)-1};
+	MAKE_HEADER(req_method, ":method", "GET");
+	MAKE_HEADER(req_path, ":path", "goaway");
+	MAKE_HEADER(req_connection, "Connection", "close");
+        static const nghq_header *req[] = {
+            &req_method, &req_path, &req_connection
         };
-        const nghq_header resp[] = {
-            {(uint8_t *) ":status", 7, (uint8_t *) "200", 3},
-            {(uint8_t *) "Connection", 10, (uint8_t *) "close", 5}
+	MAKE_HEADER(resp_status, ":status", "200");
+	MAKE_HEADER(resp_connection, "Connection", "close");
+        static const nghq_header *resp[] = {
+            &resp_status, &resp_connection
         };
-        nghq_submit_push_promise(session, stream4->user_data, req, 3,
+#undef MAKE_HEADER
+        nghq_submit_push_promise(session, stream4->user_data, req,
+                                 sizeof(req)/sizeof(req[0]),
                                  (void *) stream4);
-        nghq_feed_headers (session, resp, 2, 1, (void *) stream4);
+        nghq_feed_headers (session, resp, sizeof(resp)/sizeof(resp[0]), 1,
+                           (void *) stream4);
       }
     }
   } else if (session->mode == NGHQ_MODE_UNICAST) {
