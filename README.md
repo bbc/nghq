@@ -21,6 +21,15 @@ done.
 
 ![nghq diagram](docs/nghq-libs-web.png)
 
+The public API is documented [here](docs/public-api.md). In addition, the
+library's public header file [nghq.h](include/nghq/nghq.h) has comment blocks
+for every function and callback listed above it which also serve as
+documentation.
+
+Some helpful sequence diagrams, showing the expected interaction between a
+client/server application and **nghq** can be found
+[here](docs/sequence-diagrams.md).
+
 ## Caveats
 
 **NOTE: In its current form, nghq implements only the parts of the HTTP/QUIC specification required by [draft-pardue-quic-http-mcast-02](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02)**.

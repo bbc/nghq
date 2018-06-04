@@ -1,0 +1,85 @@
+# nghq
+#
+# Copyright (c) 2018 nghq contributors
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+@startuml
+participant Application as app #87CEEB
+participant nghq #99FF99
+ 
+== Receive Client Handshake ==
+app->app: Accept New UDP socket
+app->nghq: nghq_session_server_new()
+activate nghq
+nghq-->app: nghq_recv_callback
+nghq-->app: nghq_decrypt_callback
+== Send Server Handshake ==
+nghq-->app: nghq_encrypt_callback
+nghq-->app: nghq_send_callback
+== Connection Established ==
+loop Running
+	group Receive New Request
+		app->app: Socket has data to read
+		app->nghq: nghq_session_recv()
+		nghq-->app: nghq_recv_callback
+		nghq-->app: nghq_decrypt_callback
+		nghq-->app: nghq_on_begin_headers_callback
+		loop foreach header
+			nghq-->app: nghq_on_headers_callback
+		end loop
+		note over app, nghq: Request has no body data
+		app->nghq: nghq_set_request_user_data()
+		note right: Application optionally sets user\ndata for request tracking
+		app->nghq: nghq_feed_headers()
+		loop Send response
+			app->nghq: nghq_feed_payload_data()
+			note right: Set final flag non-zero to end
+			app->nghq: nghq_session_send()
+			nghq-->app: nghq_encrypt_callback
+			nghq-->app: nghq_send_callback
+		end loop
+	end group
+	group Server Push
+		app->nghq: nghq_submit_push_promise()
+		app->nghq: nghq_session_send()
+		nghq-->app: nghq_encrypt_callback
+		nghq-->app: nghq_send_callback
+		note over app, nghq: Convert push promise to stream
+		app->nghq: nghq_feed_headers()
+		loop Send pushed data
+			app->nghq: nghq_feed_payload_data()
+			note right: Set final flag non-zero to end
+			app->nghq: nghq_session_send()
+			nghq-->app: nghq_encrypt_callback
+			nghq-->app: nghq_send_callback
+		end loop
+	end group
+end loop
+ 
+app->nghq: nghq_session_close()
+loop Closing
+	nghq-->app: nghq_encrypt_callback()
+	nghq-->app: nghq_send_callback()
+end loop
+deactivate nghq
+app->nghq: nghq_session_free()
+ 
+@enduml
