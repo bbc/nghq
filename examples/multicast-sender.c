@@ -484,6 +484,8 @@ int main(int argc, char *argv[])
 	}
     }
 
+    free_multicast_interfaces(ifcs);
+
     /* Create sending socket */
     g_server_session.socket = socket (g_server_session.mcast_addr.ss_family,
                                       SOCK_DGRAM|SOCK_NONBLOCK, 0);

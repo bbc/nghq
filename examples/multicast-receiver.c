@@ -167,6 +167,7 @@ static int on_request_close_cb  (nghq_session *session, nghq_error status,
                                  void *request_user_data)
 {
     printf("Request finished\n");
+    free(request_user_data);
     return NGHQ_OK;
 }
 
@@ -292,6 +293,7 @@ int main(int argc, char *argv[])
             mcast_grp = DEFAULT_MCAST_GRP_V6;
         }
     }
+    free_multicast_interfaces(ifcs);
 
     default_src_ip = src_ip;
     default_mcast_grp = mcast_grp;
