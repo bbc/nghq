@@ -346,9 +346,9 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
 
     nghq_stream *stream0 = nghq_stream_id_map_find (session->transfers, 0);
     nghq_io_buf_new(&stream0->send_buf, out_buf, encoded_params_size, 0);
-    result = 1;
-    result = ngtcp2_conn_handshake(session->ngtcp2_session, out_buf, 128,
-                                   in_buf, len_client_init,
+    static uint8_t out_buf2[128];
+    result = ngtcp2_conn_handshake(session->ngtcp2_session, out_buf2,
+                                   sizeof(out_buf2), in_buf, len_client_init,
                                    get_timestamp_now());
 
     free (in_buf);
@@ -979,6 +979,7 @@ int nghq_submit_push_promise (nghq_session *session,
   return NGHQ_OK;
 
 push_promise_io_err:
+  nghq_stream_ended(session, promised_stream);
   nghq_stream_id_map_remove(session->promises, promised_stream->push_id);
 push_promise_frame_err:
   free (push_promise_buf);
@@ -1558,13 +1559,10 @@ int nghq_stream_cancel (nghq_session* session, nghq_stream *stream, int error) {
  * Call this if a stream has naturally ended to clean up the stream object
  */
 int nghq_stream_ended (nghq_session* session, nghq_stream *stream) {
-  while (stream->send_buf != NULL) {
-    nghq_io_buf_pop(&stream->send_buf);
-  }
+  if (stream == NULL) return NGHQ_OK;
 
-  while (stream->recv_buf != NULL) {
-    nghq_io_buf_pop(&stream->recv_buf);
-  }
+  nghq_io_buf_clear(&stream->send_buf);
+  nghq_io_buf_clear(&stream->recv_buf);
 
   stream->send_state = STATE_DONE;
   stream->recv_state = STATE_DONE;
@@ -1642,9 +1640,11 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
   }
 
   if (request_closing) {
+    uint64_t stream_id = stream->stream_id;
     session->callbacks.on_request_close_callback (session, status,
                                                   stream->user_data);
     rv = nghq_stream_ended (session, stream);
+    nghq_stream_id_map_remove (session->transfers, stream_id);
   }
 
   return rv;
