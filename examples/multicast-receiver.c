@@ -24,6 +24,7 @@
  */
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,6 +56,7 @@ typedef enum ReceivingHeaders {
 
 typedef struct push_request {
     ReceivingHeaders headers_incoming;
+    bool text_body;
 } push_request;
 
 typedef struct session_data {
@@ -76,7 +78,7 @@ static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
       }
       return 0;
     }
-    printf("Received %zd bytes of data\n", result);
+    printf("packet recv: Received %zd bytes of data\n", result);
     return result;
 }
 
@@ -108,13 +110,14 @@ static ssize_t send_cb (nghq_session *session, const uint8_t *data, size_t len,
                         void *session_user_data)
 {
     /* session_data *sdata = (session_data*)session_user_data; */
-    return len;
+    return NGHQ_ERROR;
 }
 
 static void session_status_cb (nghq_session *session, nghq_error status,
                                void *session_user_data)
 {
     /* session_data *sdata = (session_data*)session_user_data; */
+    printf("session status: %p = %i\n", session_user_data, status);
 }
 
 static int recv_control_data_cb (nghq_session *session, const uint8_t *buf,
@@ -142,9 +145,22 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
                           nghq_header *hdr, void *request_user_data)
 {
     push_request *req = (push_request*)request_user_data;
+    static const char content_type_field[] = "content-type";
+    static const char content_type_text[] = "text/";
+
     printf("%c> %.*s: %.*s\n",
            ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'),
            (int) hdr->name_len, hdr->name, (int) hdr->value_len, hdr->value);
+
+    if (req->headers_incoming!=HEADERS_REQUEST &&
+        hdr->name_len == sizeof(content_type_field)-1 &&
+        hdr->value_len >= sizeof(content_type_text) &&
+        strncasecmp(hdr->name, content_type_field, hdr->name_len) == 0 &&
+        strncasecmp(hdr->value, content_type_text,
+                    sizeof(content_type_text)-1) == 0) {
+        req->text_body = true;
+    }
+
     return NGHQ_OK;
 }
 
@@ -152,8 +168,15 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
                             const uint8_t *data, size_t len, size_t off,
                             void *request_user_data)
 {
-    printf("Received %zu bytes\n", len);
-    printf("Body: %s\n", data);
+    push_request *req = (push_request*)request_user_data;
+
+    printf("Received %zu bytes of body data.\n", len);
+    if (req->text_body) {    
+        printf("Body:\n%s\n", data);
+    } else {
+        printf("Body is binary, not displaying.\n");
+    }
+
     return NGHQ_OK;
 }
 
@@ -202,21 +225,30 @@ static nghq_transport_settings g_trans_settings = {
 
 static void socket_readable_cb (EV_P_ ev_io *w, int revents)
 {
+    ev_io_stop (EV_A_ w);
     session_data *data = (session_data*)(w->data);
-    ev_io_stop (EV_DEFAULT_UC_ w);
-    ev_idle_start (EV_DEFAULT_UC_ &data->recv_idle);
+    ev_idle_start (EV_A_ &data->recv_idle);
 }
 
 static void recv_idle_cb (EV_P_ ev_idle *w, int revents)
 {
     session_data *data = (session_data*)(w->data);
-    ev_idle_stop (EV_DEFAULT_UC_ w);
+    int rv;
+
+    ev_idle_stop (EV_A_ w);
     printf("Data waiting on socket, calling nghq_session_recv\n");
-    int rv = nghq_session_recv (data->session);
-    if (rv != NGHQ_OK) {
+
+    do {
+        rv = nghq_session_recv (data->session);
+    } while (rv == NGHQ_OK);
+
+    if (rv != NGHQ_NO_MORE_DATA) {
       fprintf(stderr, "nghq_session_recv failed with %d\n", rv);
+    } else {
+      fprintf(stderr, "Waiting for new packet data.\n");
     }
-    ev_io_start (EV_DEFAULT_UC_ &data->socket_readable);
+
+    ev_io_start (EV_A_ &data->socket_readable);
 }
 
 static int

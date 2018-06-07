@@ -45,4 +45,28 @@ multicast_sender_SOURCES = \
 	multicast_interfaces.c \
 	multicast_interfaces.h \
 	multicast-sender.c
+if HAVE_OPENSSL
+noinst_SCRIPTS = create_cert.sh
+EXTRADIST = create_cert.sh
+CLEANFILES = \
+	sender.key \
+	sender.pem
+
+sender.key sender.pem: $(srcdir)/create_cert.sh
+	$(srcdir)/create_cert.sh
+
+multicast_sender_LDADD += \
+	$(OPENSSL_LIBS)
+multicast_sender_CFLAGS += \
+	$(OPENSSL_CFLAGS)
+multicast_sender_SOURCES += \
+        crypto_fns_openssl.c \
+	crypto_fns_openssl.h \
+	digest_fns.c \
+	digest_fns.h \
+	signature_fns.c \
+	signature_fns.h
+
+multicast_sender$(EXE): sender.key sender.pem
+endif
 

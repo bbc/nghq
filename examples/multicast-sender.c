@@ -31,15 +31,33 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <getopt.h>
 #include <netdb.h>
+#include <time.h>
+#include <fcntl.h>
+#include <dirent.h>
 
 #include <ev.h>
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "nghq/nghq.h"
 #include "multicast_interfaces.h"
+
+#if HAVE_OPENSSL
+#include "crypto_fns_openssl.h"
+#include "digest_fns.h"
+#include "signature_fns.h"
+#endif
+
+#define AUTHORITY_MAX_LEN     128
+#define PATH_MAX_LEN          4096
+#define DATE_MAX_LEN          32
 
 #define _STR(a) #a
 #define STR(a) _STR(a)
@@ -49,6 +67,13 @@
 #define DEFAULT_MCAST_PORT    2000
 #define DEFAULT_MCAST_TTL     1
 #define DEFAULT_CONNECTION_ID 1
+#define DEFAULT_AUTHORITY     "localhost"
+#define DEFAULT_PATH_PREFIX   "/"
+#define DEFAULT_URL_PREFIX    "https://" DEFAULT_AUTHORITY DEFAULT_PATH_PREFIX
+#if HAVE_OPENSSL
+#define DEFAULT_PRIVATE_KEY_FILE "sender.key"
+#define DEFAULT_KEY_ID           "sender.pem"
+#endif
 
 typedef struct server_session {
     nghq_session *session;
@@ -65,14 +90,12 @@ static const nghq_header method_header = {
     method_hdr, sizeof(method_hdr)-1, method_value, sizeof(method_value)-1
 };
 static char path_hdr[] = ":path";
-static char path_value[] = "/testfile.txt";
-static const nghq_header path_header = {
-    path_hdr, sizeof(path_hdr)-1, path_value, sizeof(path_value)-1
+static nghq_header path_header = {
+    path_hdr, sizeof(path_hdr)-1, NULL, 0
 };
 static char host_hdr[] = ":authority";
-static char host_value[] = "localhost";
-static const nghq_header host_header = {
-    host_hdr, sizeof(host_hdr)-1, host_value, sizeof(host_value)-1
+static nghq_header host_header = {
+    host_hdr, sizeof(host_hdr)-1, NULL, 0
 };
 static char user_agent_hdr[] = "User-Agent";
 static char user_agent_value[] = "NGHQ-Example/1.0 (Linux) NGHQ/20180321 NGHQ-Server/1.0";
@@ -80,8 +103,18 @@ static const nghq_header user_agent_header = {
     user_agent_hdr, sizeof(user_agent_hdr)-1, user_agent_value, sizeof(user_agent_value)-1
 };
 
+#if HAVE_OPENSSL
+static char signature_hdr[] = "Signature";
+static nghq_header req_signature_header = {
+    signature_hdr, sizeof(signature_hdr)-1, NULL, 0
+};
+#endif
+
 static const nghq_header *g_request_hdrs[] = {
   &method_header, &path_header, &host_header, &user_agent_header
+#if HAVE_OPENSSL
+  , &req_signature_header
+#endif
 };
 
 static char status_hdr[] = ":status";
@@ -96,23 +129,352 @@ static const nghq_header server_header = {
   server_hdr, sizeof(server_hdr)-1, server_value, sizeof(server_value)-1
 };
 static char date_hdr[] = "Date";
-static char date_value[] = "Wed, 21 Mar 2018 14:52:45 GMT";
-static const nghq_header date_header = {
-  date_hdr, sizeof(date_hdr)-1, date_value, sizeof(date_value)-1
+static nghq_header date_header = {
+  date_hdr, sizeof(date_hdr)-1, NULL, 0
 };
 static char content_type_hdr[] = "Content-Type";
-static char content_type_value[] = "text/plain; charset=UTF-8";
-static const nghq_header content_type_header = {
-  content_type_hdr, sizeof(content_type_hdr)-1, content_type_value, sizeof(content_type_value)-1
+static nghq_header content_type_header = {
+  content_type_hdr, sizeof(content_type_hdr)-1, NULL, 0
 };
+
+#if HAVE_OPENSSL
+static char digest_hdr[] = "Digest";
+static nghq_header digest_header = {
+    digest_hdr, sizeof(digest_hdr)-1, NULL, 0
+};
+
+static nghq_header resp_signature_header = {
+    signature_hdr, sizeof(signature_hdr)-1, NULL, 0
+};
+#endif
 
 static const nghq_header *g_response_hdrs[] = {
   &status_header, &server_header, &date_header, &content_type_header
+#if HAVE_OPENSSL
+  , &digest_header, &resp_signature_header
+#endif
 };
 
-static const char g_response[] = "This is a test of the multicast HTTP/QUIC server push!";
-
 static server_session g_server_session;
+
+#if HAVE_OPENSSL
+static const char *g_private_key_file = DEFAULT_PRIVATE_KEY_FILE;
+static const char *g_key_id = DEFAULT_KEY_ID;
+
+static void *_load_private_key()
+{
+    void *key = NULL;
+    FILE *f;
+
+    f = fopen(g_private_key_file, "rb");
+    if (!f) {
+	fprintf(stderr, "Failed to read private key file '%s'.\n", g_private_key_file);
+	return NULL;
+    }
+    crypto_privkey_from_pem_file(f, &key);
+    fclose(f);
+    return key;
+}
+
+static char *_make_digest(int fd)
+{
+    off_t curr_offset;
+    char *result = NULL;
+    static uint8_t buffer[4096];
+    size_t bytes_read;
+    void *ctx;
+
+    curr_offset = lseek(fd, 0, SEEK_CUR);
+
+    ctx = digest_ctx_new();
+    do {
+        bytes_read = read(fd, buffer, sizeof(buffer));
+	if (bytes_read > 0) {
+	    digest_ctx_add_data(ctx, buffer, bytes_read);
+	}
+    } while (bytes_read > 0);
+    lseek(fd, curr_offset, SEEK_SET);
+
+    result = digest_ctx_get_digest_hdr_value(ctx);
+    digest_ctx_free(ctx);
+
+    return result;
+}
+
+static void _free_digest(char *digest_hdr_value)
+{
+    digest_ctx_free_digest_hdr_value(NULL, digest_hdr_value);
+}
+
+static char *_make_signature(const char **hdrs_list,
+		const nghq_header **sig_headers, size_t sig_headers_num,
+		const nghq_header **req_headers, size_t req_headers_num)
+{
+    static void *private_key = NULL;
+
+    if (!private_key) {
+	private_key = _load_private_key();
+	if (!private_key) return NULL;
+    }
+
+    return signature_hdr_value(private_key, g_key_id, hdrs_list, sig_headers,
+                               sig_headers_num, req_headers, req_headers_num);
+}
+
+static void _free_signature(char *sig_hdr_value)
+{
+    signature_hdr_value_free(sig_hdr_value);
+}
+#endif
+
+static const char *mime_type(const char *filename)
+{
+    static const struct {
+        const char *suffix;
+        const char *mime;
+    } mime_types[] = {
+        {".css",  "text/css; charset=UTF-8"},
+	{".doc",  "application/msword"},
+	{".eps",  "application/postscript"},
+	{".gif",  "image/gif"},
+	{".htm",  "text/html; charset=UTF-8"},
+	{".html", "text/html; charset=UTF-8"},
+	{".jpg",  "image/jpeg"},
+	{".js",   "application/javascript"},
+	{".json", "application/json"},
+        {".mpd",  "application/dash+xml"},
+        {".mpg",  "video/mpeg"},
+	{".pdf",  "application/pdf"},
+	{".png",  "image/png"},
+	{".ps",   "application/postscript"},
+	{".rdf",  "application/rdf+xml"},
+	{".rtf",  "application/rtf"},
+	{".svg",  "image/svg+xml"},
+	{".tif",  "image/tiff"},
+        {".txt",  "text/plain; charset=UTF-8"},
+    };
+    size_t filename_len = strlen(filename);
+
+    for (size_t i=0; i<(sizeof(mime_types)/sizeof(mime_types[0])); i++) {
+	if (strcmp(filename+filename_len-strlen(mime_types[i].suffix), mime_types[i].suffix) == 0) {
+	    return mime_types[i].mime;
+	}
+    }
+    return "application/octet-stream";
+}
+
+static void _send_file(const char *filename, size_t filename_skip_chars,
+                       const char *path_prefix)
+{
+    static intptr_t promise_request_user_data = 0;
+    static char date_str[DATE_MAX_LEN];
+    size_t path_len;
+    char *path_str;
+    int fd;
+    int i;
+    int result;
+    time_t now;
+
+    /* open file to send */
+    fd = open(filename, O_RDONLY);
+    if (fd < 0) {
+      printf("Unable to open '%s' for reading, skipping...\n", filename);
+      return;
+    }
+
+    /* Set Date header */
+    time(&now);
+    strftime(date_str, sizeof(date_str)-1, "%a, %e %b %Y %H:%M:%S GMT", gmtime(&now));
+    date_header.value = date_str;
+    date_header.value_len = strlen(date_str);
+
+    /* Set :path header */
+    path_len = strlen(filename) - filename_skip_chars + strlen(path_prefix) + 1;
+    path_str = malloc(path_len + 1);
+    sprintf(path_str,"%s/%s", path_prefix, filename+filename_skip_chars);
+    path_header.value = path_str;
+    path_header.value_len = path_len;
+
+    /* Set Content-Type header */
+    content_type_header.value = (uint8_t*)mime_type(filename);
+    content_type_header.value_len = strlen((char*)content_type_header.value);
+
+#if HAVE_OPENSSL
+    /* Set Digest header */
+    digest_header.value = (uint8_t*)_make_digest(fd);
+    if (!digest_header.value) {
+	fprintf(stderr, "Unable to create Digest header for '%s', skipping...\n", filename);
+	free(path_str);
+        return;
+    }
+    digest_header.value_len = strlen((char*)digest_header.value);
+
+    /* Set promise request Signature header */
+    static const char *req_sig_hdrs[] = { "(request-target)", NULL };
+    req_signature_header.value = (uint8_t*)_make_signature(req_sig_hdrs,
+	g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
+	g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]));
+    if (!req_signature_header.value) {
+	fprintf(stderr, "Unable to create Signature headers for '%s', skipping...\n", filename);
+	_free_digest((char*)digest_header.value);
+	free(path_str);
+	return;
+    }
+    req_signature_header.value_len = strlen((char*)req_signature_header.value);
+
+    /* Set response Signature header */
+    static const char *resp_sig_hdrs[] = { "(request-target)", "Date",
+					   "Content-Type", "Digest", NULL };
+    resp_signature_header.value = (uint8_t*)_make_signature(resp_sig_hdrs,
+	g_response_hdrs, sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]),
+	g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]));
+    if (!resp_signature_header.value) {
+        fprintf(stderr, "Unable to create Signature headers for '%s', skipping...\n", filename);
+	_free_digest((char*)digest_header.value);
+	_free_signature((char*)req_signature_header.value);
+        free(path_str);
+        return;
+    }
+#endif //HAVE_OPENSSL
+
+    promise_request_user_data++;
+
+    /* Make the push promise */
+    printf("Submitting Push Promise with headers:\n");
+    for (i = 0; i < sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]); i++) {
+      printf("\t%s: %s\n", g_request_hdrs[i]->name, g_request_hdrs[i]->value);
+    }
+    result = nghq_submit_push_promise (g_server_session.session, NULL,
+                     g_request_hdrs,
+                     sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
+                     (void*)promise_request_user_data);
+
+    ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
+    ev_run(EV_DEFAULT_UC_ 0);
+
+    printf("Starting server push with headers:\n");
+    for (i = 0; i < sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]); i++) {
+      printf("\t%s: %s\n", g_response_hdrs[i]->name, g_response_hdrs[i]->value);
+    }
+    result = nghq_feed_headers (g_server_session.session, g_response_hdrs,
+                     sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]), 0,
+                     (void*)promise_request_user_data);
+
+    ev_run(EV_DEFAULT_UC_ 0);
+
+    free(path_str);
+#if HAVE_OPENSSL
+    _free_digest((char*)digest_header.value);
+    digest_header.value = NULL;
+    digest_header.value_len = 0;
+    _free_signature((char*)req_signature_header.value);
+    req_signature_header.value = NULL;
+    req_signature_header.value_len = 0;
+    _free_signature((char*)resp_signature_header.value);
+    resp_signature_header.value = NULL;
+    resp_signature_header.value_len = 0;
+#endif
+
+    printf("Payload for server push:\n");
+    while (fd >= 0) {
+        static unsigned char read_buffer[16384];
+        ssize_t res;
+	res = read(fd, read_buffer, sizeof(read_buffer));
+	printf(".");
+	if (res <= 0) {
+	    close(fd);
+	    fd = -1;
+	} else {
+	    int off = 0;
+    	    ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
+	    while (res > 0) {
+		do {
+                    result = nghq_feed_payload_data (g_server_session.session,
+		                              read_buffer + off, res, 0,
+                                              (void*)promise_request_user_data);
+		    ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
+	        } while (result == NGHQ_REQUEST_BLOCKED);
+		if (result == NGHQ_REQUEST_CLOSED) res = 0;
+		else {
+                    res -= result;
+                    off += result;
+                }
+            }
+        }
+    }
+    printf("\n");
+    nghq_end_request (g_server_session.session, NGHQ_OK,
+                      (void*)promise_request_user_data);
+
+    /* flush data out */
+    ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
+    ev_run(EV_DEFAULT_UC_ 0);
+}
+
+static void _send_file_or_dir(const char *file_or_dir,
+                              size_t filename_skip_chars,
+                              const char *path_prefix,
+                              int recursive)
+{
+    struct stat stats;
+    if (lstat(file_or_dir, &stats) != 0) return;
+
+    if (S_ISDIR(stats.st_mode)) {
+        DIR *dir = opendir(file_or_dir);
+        for (struct dirent *ent = readdir(dir); ent != NULL;
+             ent = readdir(dir)) {
+	    char *file_path;
+            if (ent->d_name[0] == '.' &&
+                (ent->d_name[1] == '\0' || 
+                 (ent->d_name[1] == '.' && ent->d_name[2] == '\0'))) continue;
+            file_path = malloc(strlen(file_or_dir) + strlen(ent->d_name) + 2);
+            sprintf(file_path,"%s/%s",file_or_dir,ent->d_name);
+            if (lstat(file_path, &stats) != 0) {
+		free(file_path);
+		continue;
+	    }
+            if (S_ISDIR(stats.st_mode) && recursive || !S_ISDIR(stats.st_mode))
+                _send_file_or_dir(file_path, filename_skip_chars, path_prefix,
+                                  recursive);
+	    free(file_path);
+        }
+        closedir(dir);
+    } else if (S_ISREG(stats.st_mode)) {
+        _send_file(file_or_dir, filename_skip_chars, path_prefix);
+    }
+}
+
+static void do_file_send(const char *authority, const char *path_prefix,
+                         const char *send_dir, int recursive)
+{
+    size_t dir_prefix_len = strlen(send_dir);
+    static const char curr_dir[] = ".";
+    static char tmp_dir[PATH_MAX_LEN];
+
+    if (dir_prefix_len>=PATH_MAX_LEN) {
+        fprintf(stderr, "error: Sending directory path too long!\n");
+        return;
+    }
+
+    /* calculate how many characters to skip in the filename to get the
+     * file path relative to the top dir and remove trailing '/'. */
+    if (dir_prefix_len == 0) {
+	/* case where top directory is the empty string, use current dir */
+	send_dir = curr_dir;
+        dir_prefix_len = 2;
+    } else if (send_dir[dir_prefix_len-1] == '/') {
+        strncpy(tmp_dir, send_dir, dir_prefix_len-1);
+        send_dir = tmp_dir;
+    } else {
+	dir_prefix_len++;
+    }
+
+    /* set authority for all transfers */
+    host_header.value = (uint8_t*)authority;
+    host_header.value_len = strlen(authority);
+
+    _send_file_or_dir(send_dir, dir_prefix_len, path_prefix, recursive);
+}
 
 static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
                         void *session_user_data)
@@ -237,7 +599,7 @@ static nghq_transport_settings g_trans_settings = {
     16,                   /* max_open_requests */
     16,                   /* max_open_server_pushes */
     60,                   /* idle_timeout (seconds) */
-    1500,                 /* max_packet_size */
+    1481,                 /* max_packet_size */
     0,  /* use default */ /* ack_delay_exponent */
     1                     /* connection id */
 };
@@ -245,20 +607,36 @@ static nghq_transport_settings g_trans_settings = {
 static void socket_writable_cb (EV_P_ ev_io *w, int revents)
 {
     server_session *sdata = (server_session*)(w->data);
-    ev_io_stop (EV_DEFAULT_UC_ w);
-    ev_idle_start (EV_DEFAULT_UC_ &sdata->send_idle);
+    ev_io_stop (EV_A_ w);
+    ev_idle_start (EV_A_ &sdata->send_idle);
 }
 
 static void send_idle_cb (EV_P_ ev_idle *w, int revents)
 {
     int rv;
     server_session *sdata = (server_session*)(w->data);
-    ev_idle_stop (EV_DEFAULT_UC_ w);
+    ev_idle_stop (EV_A_ w);
+
     rv = nghq_session_send (sdata->session);
-    if (rv != NGHQ_OK) {
-      ev_break (EV_DEFAULT_UC_ EVBREAK_ALL);
+
+    fprintf(stderr, "send_idle_cb: nghq_session_send returned %i.\n", rv);
+
+    switch (rv) {
+    case NGHQ_OK:
+	/* not finished yet, continue sending */
+	ev_idle_start (EV_A_ w);
+	break;
+    case NGHQ_NO_MORE_DATA:
+	/* nothing left to send */
+	ev_break (EV_A_ EVBREAK_ONE);
+	break;
+    case NGHQ_SESSION_BLOCKED:
+	ev_io_start (EV_A_ &sdata->socket_writable);
+	break;
+    default:
+	ev_break (EV_A_ EVBREAK_ONE);
+	fprintf(stderr, "send_idle_cb: nghq_session_send returned %i.\n", rv);
     }
-    ev_io_start (EV_DEFAULT_UC_ &sdata->socket_writable);
 }
 
 static int
@@ -341,20 +719,47 @@ _bind_socket_interface (int sock, const struct sockaddr *addr, unsigned int idx)
     }
 }
 
+static int parse_url(const char *url, const char **authority, const char **path)
+{
+    static char auth[AUTHORITY_MAX_LEN];
+    static const char default_path[] = "/";
+    size_t i;
+
+    if (strncmp(url, "https://", 8) != 0) return 0;
+
+    for (i=0; i<sizeof(auth) && url[8+i] && url[8+i] != '/'; i++) {
+	auth[i] = url[8+i];
+    }
+
+    if (i == sizeof(auth)) return 0;
+
+    auth[i] = '\0';
+
+    *authority = auth;
+
+    if (!url[8+i]) {
+	*path = default_path;
+    } else {
+	*path = url+8+i;
+    }
+
+    return 1;
+}
+
 int main(int argc, char *argv[])
 {
     struct sockaddr_in mcast_addr;
-    int promise_request_user_data;
     int result;
     int i;
     static const int on = 1;
 
-    static const char short_opts[] = "hi:p:t:";
+    static const char short_opts[] = "hi:p:t:u:";
     static const struct option long_opts[] = {
         {"help", 0, NULL, 'h'},
         {"connection-id", 1, NULL, 'i'},
         {"port", 1, NULL, 'p'},
         {"ttl", 1, NULL, 't'},
+	{"url-prefix", 1, NULL, 'u'},
         {NULL, 0, NULL, 0}
     };
 
@@ -366,6 +771,9 @@ int main(int argc, char *argv[])
     unsigned short send_port = DEFAULT_MCAST_PORT;
     const char *mcast_grp = DEFAULT_MCAST_GRP_V4;
     const char *ifc_ip = DEFAULT_IFC_ADDR_V4;
+    const char *authority = DEFAULT_AUTHORITY;
+    const char *path_prefix = DEFAULT_PATH_PREFIX;
+    const char *send_dir = NULL;
     unsigned int ifc_idx = 0;
     const char *default_mcast_grp = NULL;
     const char *default_ifc_ip = NULL;
@@ -405,6 +813,13 @@ int main(int argc, char *argv[])
 	    if (ttl<1) ttl = 1;
             if (ttl>255) ttl = 255;
 	    break;
+	case 'u':
+	    if (!parse_url(optarg, &authority, &path_prefix)) {
+		fprintf(stderr, "Unable to recognise '%s' as a URL", optarg);
+		usage = 1;
+		err_out = 1;
+	    }
+	    break;
         default:
             usage = 1;
             err_out = 1;
@@ -412,15 +827,15 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* error if more than 2 optional arguments left over */
-    if (optind+2 < argc) {
+    /* must have 1 to 3 arguments */
+    if (optind+1 > argc || optind+3 < argc) {
         usage = 1;
         err_out = 1;
     }
 
     if (usage) {
       fprintf(err_out?stderr:stdout,
-"Usage: %s [-h] [-p <port>] [-i <id>] [-t <ttl>] [<mcast-grp> [<ifc-addr>]]\n",
+"Usage: %s [-h] [-p <port>] [-i <id>] [-t <ttl>] [-u <url-prefix>] [<mcast-grp> [<ifc-addr>]] <send-directory>\n",
               argv[0]);
     }
     if (help) {
@@ -430,23 +845,27 @@ int main(int argc, char *argv[])
 "  --port          -p <port> UDP port number to send to [default: " STR(DEFAULT_MCAST_PORT) "].\n"
 "  --connection-id -i <id>   The connection ID to expect [default: " STR(DEFAULT_CONNECTION_ID) "].\n"
 "  --ttl           -t <ttl>  The TTL to use for multicast [default: " STR(DEFAULT_MCAST_TTL) "].\n"
+"  --url-prefix    -u <url>  The URL prefix to transmit with the files [default: " DEFAULT_URL_PREFIX "].\n"
 "\n"
 "Arguments:\n"
-"  <mcast-grp> The multicast group to send on [default: %s].\n"
-"  <ifc-addr>  The source interface address [default: %s].\n"
+"  <mcast-grp>      The multicast group to send on [default: %s].\n"
+"  <ifc-addr>       The source interface address [default: %s].\n"
+"  <send-directory> The directory containing the files to send.\n"
 "\n", default_mcast_grp, default_ifc_ip);
     }
     if (usage) {
       return err_out;
     }
 
-    if (optind < argc) {
+    if (optind+1 < argc) {
         mcast_grp = argv[optind];
     }
 
-    if (optind+1 < argc) {
+    if (optind+2 < argc) {
         ifc_ip = argv[optind+1];
     }
+
+    send_dir = argv[argc-1];
 
     /* Initialise libev */
     ev_default_loop (0);
@@ -519,33 +938,9 @@ int main(int argc, char *argv[])
 
     ev_io_start (EV_DEFAULT_UC_ &g_server_session.socket_writable);
 
-    /* Make the push promise */
-    printf("Submitting Push Promise with headers:\n");
-    for (i = 0; i < sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]); i++) {
-      printf("\t%s: %s\n", g_request_hdrs[i]->name, g_request_hdrs[i]->value);
-    }
-    result = nghq_submit_push_promise (g_server_session.session, NULL,
-		     g_request_hdrs,
-                     sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
-                     &promise_request_user_data);
+    do_file_send (authority, path_prefix, send_dir, 1 /* recursive */);
 
-    ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
-
-    printf("Starting server push with headers:\n");
-    for (i = 0; i < sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]); i++) {
-      printf("\t%s: %s\n", g_response_hdrs[i]->name, g_response_hdrs[i]->value);
-    }
-    result = nghq_feed_headers (g_server_session.session, g_response_hdrs,
-		     sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]), 0,
-		     &promise_request_user_data);
-
-    ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
-
-    printf("Payload for server push: %s\n", g_response);
-    result = nghq_feed_payload_data (g_server_session.session, g_response,
-                     sizeof(g_response), 1, &promise_request_user_data);
-
-    ev_run(EV_DEFAULT_UC_ 0);
+    ev_run (EV_DEFAULT_UC_ 0);
 
     ev_io_stop (EV_DEFAULT_UC_ &g_server_session.socket_writable);
     ev_idle_stop (EV_DEFAULT_UC_ &g_server_session.send_idle);

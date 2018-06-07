@@ -79,6 +79,25 @@ AC_DEFINE_UNQUOTED([HAVE_LIBEV], [$HAVE_LIBEV], [If we have libev available])
 AC_SUBST([LIBEV_CFLAGS])
 AC_SUBST([LIBEV_LIBS])
 
+OPENSSL_LIBS=
+OPENSSL_CFLAGS=
+HAVE_OPENSSL=0
+AC_ARG_WITH([openssl], AS_HELP_STRING([--without-openssl], [Disable use of openssl in examples.]))
+AS_IF([test "x$with_openssl" != "xno"], [
+	AX_LIB_OPENSSL([], [
+               OPENSSL_LIBS=$openssl_CFLAGS
+               OPENSSL_CFLAGS=$openssl_LIBS
+               HAVE_OPENSSL=1
+               ], [
+               AC_MSG_NOTICE([[To include Digest and Signature support in examples, please install the OpenSSL
+library development packages ]])
+              ])
+])
+AM_CONDITIONAL([HAVE_OPENSSL], [test "$HAVE_OPENSSL" -eq 1])
+AC_DEFINE_UNQUOTED([HAVE_OPENSSL], [$HAVE_OPENSSL], [If we have OpenSSL available])
+AC_SUBST([OPENSSL_CFLAGS])
+AC_SUBST([OPENSSL_LIBS])
+
 AC_ARG_ENABLE([debug],
     [AS_HELP_STRING([--enable-debug], [Enable debugging output from the library])],
     AC_DEFINE([DEBUGOUT], 1, [Enable debugging output from the library]))

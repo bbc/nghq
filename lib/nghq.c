@@ -1514,7 +1514,7 @@ int nghq_queue_send_frame (nghq_session* session, uint64_t stream_id,
 }
 
 int nghq_write_send_buffer (nghq_session* session) {
-  int rv = NGHQ_SESSION_BLOCKED;
+  int rv = NGHQ_NO_MORE_DATA;
   while (session->send_buf != NULL) {
     ssize_t written =
         session->callbacks.send_callback (session, session->send_buf->buf,
@@ -1523,6 +1523,7 @@ int nghq_write_send_buffer (nghq_session* session) {
 
     if (written != session->send_buf->buf_len) {
       if (written == 0) {
+	rv = NGHQ_SESSION_BLOCKED;
         break;
       } else if (written == NGHQ_EOF) {
         rv = NGHQ_EOF;
@@ -1536,6 +1537,8 @@ int nghq_write_send_buffer (nghq_session* session) {
     nghq_io_buf *pop = session->send_buf;
     session->send_buf = session->send_buf->next_buf;
     free (pop);
+
+    rv = NGHQ_OK;
   }
   return rv;
 }
