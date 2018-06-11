@@ -23,7 +23,9 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <ctype.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -39,6 +41,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <inttypes.h>
 
 #include <ev.h>
 
@@ -58,6 +61,11 @@
 #define AUTHORITY_MAX_LEN     128
 #define PATH_MAX_LEN          4096
 #define DATE_MAX_LEN          32
+
+#define MAX_PACKET_LEN        1479
+/* MAX_PAYLOAD_LEN - maximum block size used in stream data */
+/*** ngtcp2 bug means that payload must fit in a packet. ***/
+#define MAX_PAYLOAD_LEN              (MAX_PACKET_LEN-29)
 
 #define _STR(a) #a
 #define STR(a) _STR(a)
@@ -79,6 +87,7 @@ typedef struct server_session {
     nghq_session *session;
     ev_io socket_writable;
     ev_idle send_idle;
+    ev_idle recv_idle; // for faked acks
     int socket;
     struct sockaddr_storage mcast_addr;
     struct sockaddr_storage send_addr;
@@ -89,6 +98,11 @@ static char method_value[] = "GET";
 static const nghq_header method_header = {
     method_hdr, sizeof(method_hdr)-1, method_value, sizeof(method_value)-1
 };
+static char scheme_hdr[] = ":scheme";
+static char scheme_value[] = "https";
+static nghq_header scheme_header = {
+    scheme_hdr, sizeof(scheme_hdr)-1, scheme_value, sizeof(scheme_value)-1
+};
 static char path_hdr[] = ":path";
 static nghq_header path_header = {
     path_hdr, sizeof(path_hdr)-1, NULL, 0
@@ -97,21 +111,21 @@ static char host_hdr[] = ":authority";
 static nghq_header host_header = {
     host_hdr, sizeof(host_hdr)-1, NULL, 0
 };
-static char user_agent_hdr[] = "User-Agent";
+static char user_agent_hdr[] = "user-agent";
 static char user_agent_value[] = "NGHQ-Example/1.0 (Linux) NGHQ/20180321 NGHQ-Server/1.0";
 static const nghq_header user_agent_header = {
     user_agent_hdr, sizeof(user_agent_hdr)-1, user_agent_value, sizeof(user_agent_value)-1
 };
 
 #if HAVE_OPENSSL
-static char signature_hdr[] = "Signature";
+static char signature_hdr[] = "signature";
 static nghq_header req_signature_header = {
     signature_hdr, sizeof(signature_hdr)-1, NULL, 0
 };
 #endif
 
 static const nghq_header *g_request_hdrs[] = {
-  &method_header, &path_header, &host_header, &user_agent_header
+  &method_header, &scheme_header, &host_header, &path_header, &user_agent_header
 #if HAVE_OPENSSL
   , &req_signature_header
 #endif
@@ -123,22 +137,22 @@ static const nghq_header status_header = {
   status_hdr, sizeof(status_hdr)-1, status_value, sizeof(status_value)-1
 };
 
-static char server_hdr[] = "Server";
+static char server_hdr[] = "server";
 static char server_value[] = "NGHQ-Server/1.0 (GNU/Linux)";
 static const nghq_header server_header = {
   server_hdr, sizeof(server_hdr)-1, server_value, sizeof(server_value)-1
 };
-static char date_hdr[] = "Date";
+static char date_hdr[] = "date";
 static nghq_header date_header = {
   date_hdr, sizeof(date_hdr)-1, NULL, 0
 };
-static char content_type_hdr[] = "Content-Type";
+static char content_type_hdr[] = "content-type";
 static nghq_header content_type_header = {
   content_type_hdr, sizeof(content_type_hdr)-1, NULL, 0
 };
 
 #if HAVE_OPENSSL
-static char digest_hdr[] = "Digest";
+static char digest_hdr[] = "digest";
 static nghq_header digest_header = {
     digest_hdr, sizeof(digest_hdr)-1, NULL, 0
 };
@@ -168,8 +182,8 @@ static void *_load_private_key()
 
     f = fopen(g_private_key_file, "rb");
     if (!f) {
-	fprintf(stderr, "Failed to read private key file '%s'.\n", g_private_key_file);
-	return NULL;
+        fprintf(stderr, "Failed to read private key file '%s'.\n", g_private_key_file);
+        return NULL;
     }
     crypto_privkey_from_pem_file(f, &key);
     fclose(f);
@@ -189,9 +203,9 @@ static char *_make_digest(int fd)
     ctx = digest_ctx_new();
     do {
         bytes_read = read(fd, buffer, sizeof(buffer));
-	if (bytes_read > 0) {
-	    digest_ctx_add_data(ctx, buffer, bytes_read);
-	}
+        if (bytes_read > 0) {
+            digest_ctx_add_data(ctx, buffer, bytes_read);
+        }
     } while (bytes_read > 0);
     lseek(fd, curr_offset, SEEK_SET);
 
@@ -207,14 +221,14 @@ static void _free_digest(char *digest_hdr_value)
 }
 
 static char *_make_signature(const char **hdrs_list,
-		const nghq_header **sig_headers, size_t sig_headers_num,
-		const nghq_header **req_headers, size_t req_headers_num)
+                const nghq_header **sig_headers, size_t sig_headers_num,
+                const nghq_header **req_headers, size_t req_headers_num)
 {
     static void *private_key = NULL;
 
     if (!private_key) {
-	private_key = _load_private_key();
-	if (!private_key) return NULL;
+        private_key = _load_private_key();
+        if (!private_key) return NULL;
     }
 
     return signature_hdr_value(private_key, g_key_id, hdrs_list, sig_headers,
@@ -234,31 +248,31 @@ static const char *mime_type(const char *filename)
         const char *mime;
     } mime_types[] = {
         {".css",  "text/css; charset=UTF-8"},
-	{".doc",  "application/msword"},
-	{".eps",  "application/postscript"},
-	{".gif",  "image/gif"},
-	{".htm",  "text/html; charset=UTF-8"},
-	{".html", "text/html; charset=UTF-8"},
-	{".jpg",  "image/jpeg"},
-	{".js",   "application/javascript"},
-	{".json", "application/json"},
+        {".doc",  "application/msword"},
+        {".eps",  "application/postscript"},
+        {".gif",  "image/gif"},
+        {".htm",  "text/html; charset=UTF-8"},
+        {".html", "text/html; charset=UTF-8"},
+        {".jpg",  "image/jpeg"},
+        {".js",   "application/javascript"},
+        {".json", "application/json"},
         {".mpd",  "application/dash+xml"},
         {".mpg",  "video/mpeg"},
-	{".pdf",  "application/pdf"},
-	{".png",  "image/png"},
-	{".ps",   "application/postscript"},
-	{".rdf",  "application/rdf+xml"},
-	{".rtf",  "application/rtf"},
-	{".svg",  "image/svg+xml"},
-	{".tif",  "image/tiff"},
+        {".pdf",  "application/pdf"},
+        {".png",  "image/png"},
+        {".ps",   "application/postscript"},
+        {".rdf",  "application/rdf+xml"},
+        {".rtf",  "application/rtf"},
+        {".svg",  "image/svg+xml"},
+        {".tif",  "image/tiff"},
         {".txt",  "text/plain; charset=UTF-8"},
     };
     size_t filename_len = strlen(filename);
 
     for (size_t i=0; i<(sizeof(mime_types)/sizeof(mime_types[0])); i++) {
-	if (strcmp(filename+filename_len-strlen(mime_types[i].suffix), mime_types[i].suffix) == 0) {
-	    return mime_types[i].mime;
-	}
+        if (strcmp(filename+filename_len-strlen(mime_types[i].suffix), mime_types[i].suffix) == 0) {
+            return mime_types[i].mime;
+        }
     }
     return "application/octet-stream";
 }
@@ -269,11 +283,12 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
     static intptr_t promise_request_user_data = 0;
     static char date_str[DATE_MAX_LEN];
     size_t path_len;
+    size_t file_size;
     char *path_str;
     int fd;
     int i;
     int result;
-    time_t now;
+    struct timespec now;
 
     /* open file to send */
     fd = open(filename, O_RDONLY);
@@ -281,10 +296,12 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
       printf("Unable to open '%s' for reading, skipping...\n", filename);
       return;
     }
+    file_size = lseek(fd, 0, SEEK_END);
+    lseek(fd, 0, SEEK_SET);
 
     /* Set Date header */
-    time(&now);
-    strftime(date_str, sizeof(date_str)-1, "%a, %e %b %Y %H:%M:%S GMT", gmtime(&now));
+    clock_gettime(CLOCK_REALTIME_COARSE, &now);
+    strftime(date_str, sizeof(date_str)-1, "%a, %e %b %Y %H:%M:%S GMT", gmtime(&now.tv_sec));
     date_header.value = date_str;
     date_header.value_len = strlen(date_str);
 
@@ -303,38 +320,40 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
     /* Set Digest header */
     digest_header.value = (uint8_t*)_make_digest(fd);
     if (!digest_header.value) {
-	fprintf(stderr, "Unable to create Digest header for '%s', skipping...\n", filename);
-	free(path_str);
+        fprintf(stderr, "Unable to create Digest header for '%s', skipping...\n", filename);
+        free(path_str);
         return;
     }
     digest_header.value_len = strlen((char*)digest_header.value);
 
     /* Set promise request Signature header */
-    static const char *req_sig_hdrs[] = { "(request-target)", NULL };
+    static const char *req_sig_hdrs[] = { "(request-target)", ":scheme",
+                                          ":authority", NULL };
     req_signature_header.value = (uint8_t*)_make_signature(req_sig_hdrs,
-	g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
-	g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]));
+        g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
+        g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]));
     if (!req_signature_header.value) {
-	fprintf(stderr, "Unable to create Signature headers for '%s', skipping...\n", filename);
-	_free_digest((char*)digest_header.value);
-	free(path_str);
-	return;
+        fprintf(stderr, "Unable to create Signature headers for '%s', skipping...\n", filename);
+        _free_digest((char*)digest_header.value);
+        free(path_str);
+        return;
     }
     req_signature_header.value_len = strlen((char*)req_signature_header.value);
 
     /* Set response Signature header */
-    static const char *resp_sig_hdrs[] = { "(request-target)", "Date",
-					   "Content-Type", "Digest", NULL };
+    static const char *resp_sig_hdrs[] = { "(request-target)", "date",
+                                           "content-type", "digest", NULL };
     resp_signature_header.value = (uint8_t*)_make_signature(resp_sig_hdrs,
-	g_response_hdrs, sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]),
-	g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]));
+        g_response_hdrs, sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]),
+        g_request_hdrs, sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]));
     if (!resp_signature_header.value) {
         fprintf(stderr, "Unable to create Signature headers for '%s', skipping...\n", filename);
-	_free_digest((char*)digest_header.value);
-	_free_signature((char*)req_signature_header.value);
+        _free_digest((char*)digest_header.value);
+        _free_signature((char*)req_signature_header.value);
         free(path_str);
         return;
     }
+    resp_signature_header.value_len = strlen((char*)resp_signature_header.value);
 #endif //HAVE_OPENSSL
 
     promise_request_user_data++;
@@ -376,39 +395,77 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
 #endif
 
     printf("Payload for server push:\n");
+    size_t sent_bytes = 0;
     while (fd >= 0) {
-        static unsigned char read_buffer[16384];
+        static unsigned char read_buffer[MAX_PAYLOAD_LEN];
         ssize_t res;
-	res = read(fd, read_buffer, sizeof(read_buffer));
-	printf(".");
-	if (res <= 0) {
-	    close(fd);
-	    fd = -1;
-	} else {
-	    int off = 0;
-    	    ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
-	    while (res > 0) {
-		do {
+        res = read(fd, read_buffer, sizeof(read_buffer));
+        if (res <= 0) {
+            close(fd);
+            fd = -1;
+        } else {
+            sent_bytes += res;
+
+            int off = 0;
+            while (res > 0) {
+                do {
                     result = nghq_feed_payload_data (g_server_session.session,
-		                              read_buffer + off, res, 0,
+                                              read_buffer + off, res, 0,
                                               (void*)promise_request_user_data);
-		    ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
-	        } while (result == NGHQ_REQUEST_BLOCKED);
-		if (result == NGHQ_REQUEST_CLOSED) res = 0;
-		else {
+                    ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
+                    ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
+                    printf("_send_file: result = %i\n", result);
+                } while (result == NGHQ_REQUEST_BLOCKED);
+                if (result == NGHQ_REQUEST_CLOSED) {
+                    res = 0;
+                } else {
                     res -= result;
                     off += result;
                 }
             }
         }
     }
-    printf("\n");
     nghq_end_request (g_server_session.session, NGHQ_OK,
                       (void*)promise_request_user_data);
 
     /* flush data out */
     ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
     ev_run(EV_DEFAULT_UC_ 0);
+}
+
+typedef struct path_list {
+    struct path_list *next;
+    char *path;
+} path_list;
+
+static void _insert_path_list(path_list **list_root, const char *path)
+{
+    path_list *new_item = (path_list*) malloc (sizeof(path_list));
+    new_item->path = strdup(path);
+    if (*list_root == NULL) {
+        new_item->next = NULL;
+        *list_root = new_item;
+    } else if (strcmp((*list_root)->path, path) > 0) {
+        new_item->next = *list_root;
+        *list_root = new_item;
+    } else {
+        path_list *p = *list_root;
+        while (p->next && strcmp(p->next->path, path) < 0) p = p->next;
+        new_item->next = p->next;
+        p->next = new_item;
+    }
+}
+
+static void _free_path_list(path_list **list_root)
+{
+    if (*list_root == NULL) return;
+    for (path_list *p = *list_root; p;) {
+        path_list *to_del = p;
+        p = p->next;
+        free(to_del->path);
+        free(to_del);
+    }
+    *list_root = NULL;
 }
 
 static void _send_file_or_dir(const char *file_or_dir,
@@ -421,23 +478,28 @@ static void _send_file_or_dir(const char *file_or_dir,
 
     if (S_ISDIR(stats.st_mode)) {
         DIR *dir = opendir(file_or_dir);
+        path_list *list = NULL;
         for (struct dirent *ent = readdir(dir); ent != NULL;
              ent = readdir(dir)) {
-	    char *file_path;
             if (ent->d_name[0] == '.' &&
                 (ent->d_name[1] == '\0' || 
                  (ent->d_name[1] == '.' && ent->d_name[2] == '\0'))) continue;
-            file_path = malloc(strlen(file_or_dir) + strlen(ent->d_name) + 2);
-            sprintf(file_path,"%s/%s",file_or_dir,ent->d_name);
+            _insert_path_list(&list, ent->d_name);
+        }
+        for (path_list *path_it = list; path_it; path_it = path_it->next) {
+            char *file_path;
+            file_path = malloc(strlen(file_or_dir) + strlen(path_it->path) + 2);
+            sprintf(file_path, "%s/%s", file_or_dir, path_it->path);
             if (lstat(file_path, &stats) != 0) {
-		free(file_path);
-		continue;
-	    }
+                free(file_path);
+                continue;
+            }
             if (S_ISDIR(stats.st_mode) && recursive || !S_ISDIR(stats.st_mode))
                 _send_file_or_dir(file_path, filename_skip_chars, path_prefix,
                                   recursive);
-	    free(file_path);
+            free(file_path);
         }
+        _free_path_list(&list);
         closedir(dir);
     } else if (S_ISREG(stats.st_mode)) {
         _send_file(file_or_dir, filename_skip_chars, path_prefix);
@@ -459,14 +521,14 @@ static void do_file_send(const char *authority, const char *path_prefix,
     /* calculate how many characters to skip in the filename to get the
      * file path relative to the top dir and remove trailing '/'. */
     if (dir_prefix_len == 0) {
-	/* case where top directory is the empty string, use current dir */
-	send_dir = curr_dir;
+        /* case where top directory is the empty string, use current dir */
+        send_dir = curr_dir;
         dir_prefix_len = 2;
     } else if (send_dir[dir_prefix_len-1] == '/') {
         strncpy(tmp_dir, send_dir, dir_prefix_len-1);
         send_dir = tmp_dir;
     } else {
-	dir_prefix_len++;
+        dir_prefix_len++;
     }
 
     /* set authority for all transfers */
@@ -480,7 +542,7 @@ static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
                         void *session_user_data)
 {
     /* server_session *sdata = (server_session*)session_user_data; */
-    return NGHQ_ERROR;
+    return NGHQ_OK; // no more data - just do faked acks
 }
 
 static ssize_t decrypt_cb (nghq_session *session, const uint8_t *encrypted,
@@ -512,13 +574,16 @@ static ssize_t send_cb (nghq_session *session, const uint8_t *data, size_t len,
 {
     server_session *sdata = (server_session*)session_user_data;
     ssize_t result = sendto(sdata->socket, data, len, 0,
-			    (struct sockaddr*)(&sdata->mcast_addr),
+                            (struct sockaddr*)(&sdata->mcast_addr),
                             sizeof(sdata->mcast_addr));
+
+    ev_idle_start(EV_DEFAULT_UC_ &sdata->recv_idle); // need to fake ack
+
     if (result == EWOULDBLOCK) {
-	return NGHQ_OK;
+        return NGHQ_OK;
     }
     if (result < 0) {
-	return NGHQ_ERROR;
+        return NGHQ_ERROR;
     }
     return result;
 }
@@ -541,8 +606,8 @@ static int on_begin_headers_cb (nghq_session *session, nghq_headers_type type,
 {
     /* server_session *sdata = (server_session*)session_user_data; */
     if (type == NGHQ_HT_PUSH_PROMISE) {
-	/* can't push to a server */
-	return NGHQ_ERROR;
+        /* can't push to a server */
+        return NGHQ_ERROR;
     }
     /* incoming request - but we're multicast - so this is an error! */
     /* TODO: interpret the request for unicast server */
@@ -595,14 +660,32 @@ static nghq_settings g_settings = {
 };
 
 static nghq_transport_settings g_trans_settings = {
-    NGHQ_MODE_MULTICAST,  /* mode */
-    16,                   /* max_open_requests */
-    16,                   /* max_open_server_pushes */
-    60,                   /* idle_timeout (seconds) */
-    1481,                 /* max_packet_size */
-    0,  /* use default */ /* ack_delay_exponent */
-    1                     /* connection id */
+    NGHQ_MODE_MULTICAST,         /* mode */
+    16,                          /* max_open_requests */
+    16,                          /* max_open_server_pushes */
+    60,                          /* idle_timeout (seconds) */
+    MAX_PACKET_LEN,              /* max_packet_size */
+    0,  /* use default */        /* ack_delay_exponent */
+    1,                           /* connection id */
+    UINT32_C(2)*1024*1024*1024,  /* max_stream_data */
+    UINT64_MAX                   /* max_data */
 };
+
+static void recv_idle_cb (EV_P_ ev_idle *w, int revents)
+{
+    int rv;
+    server_session *sdata = (server_session*)(w->data);
+
+    ev_idle_stop(EV_A_ w);
+
+    rv = nghq_session_recv (sdata->session);
+    printf("recv_idle_cb: nghq_session_recv returned %i\n", rv);
+
+    if (rv == NGHQ_OK) {
+        /* not finished yet, continue receiving */
+        ev_idle_start(EV_A_ w);
+    }
+}
 
 static void socket_writable_cb (EV_P_ ev_io *w, int revents)
 {
@@ -623,19 +706,19 @@ static void send_idle_cb (EV_P_ ev_idle *w, int revents)
 
     switch (rv) {
     case NGHQ_OK:
-	/* not finished yet, continue sending */
-	ev_idle_start (EV_A_ w);
-	break;
+        /* not finished yet, continue sending */
+        ev_idle_start (EV_A_ w);
+        break;
     case NGHQ_NO_MORE_DATA:
-	/* nothing left to send */
-	ev_break (EV_A_ EVBREAK_ONE);
-	break;
+        /* nothing left to send */
+        ev_break (EV_A_ EVBREAK_ONE);
+        break;
     case NGHQ_SESSION_BLOCKED:
-	ev_io_start (EV_A_ &sdata->socket_writable);
-	break;
+        ev_io_start (EV_A_ &sdata->socket_writable);
+        break;
     default:
-	ev_break (EV_A_ EVBREAK_ONE);
-	fprintf(stderr, "send_idle_cb: nghq_session_send returned %i.\n", rv);
+        ev_break (EV_A_ EVBREAK_ONE);
+        fprintf(stderr, "send_idle_cb: nghq_session_send returned %i.\n", rv);
     }
 }
 
@@ -653,17 +736,17 @@ _name_and_port_to_sockaddr (struct sockaddr *addr, socklen_t addr_len,
         if ((ai->ai_family == AF_INET || ai->ai_family == AF_INET6) &&
             addr_len >= ai->ai_addrlen) {
             memcpy(addr, ai->ai_addr, ai->ai_addrlen);
-	    switch (ai->ai_family) {
-	    case AF_INET:
-		((struct sockaddr_in*)addr)->sin_port = htons(port);
-		break;
-	    case AF_INET6:
-		((struct sockaddr_in6*)addr)->sin6_port = htons(port);
-		break;
-	    }
-	    freeaddrinfo(addresses);
-	    return 1;
-	}
+            switch (ai->ai_family) {
+            case AF_INET:
+                ((struct sockaddr_in*)addr)->sin_port = htons(port);
+                break;
+            case AF_INET6:
+                ((struct sockaddr_in6*)addr)->sin6_port = htons(port);
+                break;
+            }
+            freeaddrinfo(addresses);
+            return 1;
+        }
     }
     freeaddrinfo(addresses);
     return 0;
@@ -691,7 +774,7 @@ _match_sockaddr (const struct sockaddr *addr1, const struct sockaddr *addr2)
         }
         break;
     default:
-	/* don't know how to compare, so just declare them not equal */
+        /* don't know how to compare, so just declare them not equal */
         return 0;
     }
     return 1;
@@ -703,7 +786,7 @@ _bind_socket_interface (int sock, const struct sockaddr *addr, unsigned int idx)
     switch (addr->sa_family) {
     case AF_INET: {
             const struct sockaddr_in *sin = (const struct sockaddr_in*)addr;
-	    setsockopt (sock, SOL_IP, IP_MULTICAST_IF, &(sin->sin_addr.s_addr),
+            setsockopt (sock, SOL_IP, IP_MULTICAST_IF, &(sin->sin_addr.s_addr),
                         sizeof (sin->sin_addr.s_addr));
             bind (sock, addr, sizeof (struct sockaddr_in));
         }
@@ -714,8 +797,8 @@ _bind_socket_interface (int sock, const struct sockaddr *addr, unsigned int idx)
         }
         break;
     default:
-	fprintf (stderr, "Unknown address family, aborting.\n");
-	exit(3);
+        fprintf (stderr, "Unknown address family, aborting.\n");
+        exit(3);
     }
 }
 
@@ -728,7 +811,7 @@ static int parse_url(const char *url, const char **authority, const char **path)
     if (strncmp(url, "https://", 8) != 0) return 0;
 
     for (i=0; i<sizeof(auth) && url[8+i] && url[8+i] != '/'; i++) {
-	auth[i] = url[8+i];
+        auth[i] = url[8+i];
     }
 
     if (i == sizeof(auth)) return 0;
@@ -738,9 +821,9 @@ static int parse_url(const char *url, const char **authority, const char **path)
     *authority = auth;
 
     if (!url[8+i]) {
-	*path = default_path;
+        *path = default_path;
     } else {
-	*path = url+8+i;
+        *path = url+8+i;
     }
 
     return 1;
@@ -759,7 +842,7 @@ int main(int argc, char *argv[])
         {"connection-id", 1, NULL, 'i'},
         {"port", 1, NULL, 'p'},
         {"ttl", 1, NULL, 't'},
-	{"url-prefix", 1, NULL, 'u'},
+        {"url-prefix", 1, NULL, 'u'},
         {NULL, 0, NULL, 0}
     };
 
@@ -784,13 +867,13 @@ int main(int argc, char *argv[])
 
     ifcs = get_multicast_interfaces();
     if (ifcs) {
-	static char ip_buf[INET6_ADDRSTRLEN];
+        static char ip_buf[INET6_ADDRSTRLEN];
         if (getnameinfo(ifcs->ifc_addr, ifcs->ifc_addrlen, ip_buf, sizeof(ip_buf), NULL, 0, NI_NUMERICHOST) == 0) {
-	    ifc_ip = ip_buf;
-	}
-	if (ifcs->ifc_addr->sa_family == AF_INET6) {
-	    mcast_grp = DEFAULT_MCAST_GRP_V6;
-	}
+            ifc_ip = ip_buf;
+        }
+        if (ifcs->ifc_addr->sa_family == AF_INET6) {
+            mcast_grp = DEFAULT_MCAST_GRP_V6;
+        }
     }
 
     default_ifc_ip = ifc_ip;
@@ -804,22 +887,23 @@ int main(int argc, char *argv[])
             break;
         case 'i':
             g_trans_settings.init_conn_id = atoi (optarg);
+            printf("Using connection ID = %" PRIu64 "\n", g_trans_settings.init_conn_id);
             break;
         case 'p':
             send_port = atoi (optarg);
             break;
-	case 't':
-	    ttl = atoi (optarg);
-	    if (ttl<1) ttl = 1;
+        case 't':
+            ttl = atoi (optarg);
+            if (ttl<1) ttl = 1;
             if (ttl>255) ttl = 255;
-	    break;
-	case 'u':
-	    if (!parse_url(optarg, &authority, &path_prefix)) {
-		fprintf(stderr, "Unable to recognise '%s' as a URL", optarg);
-		usage = 1;
-		err_out = 1;
-	    }
-	    break;
+            break;
+        case 'u':
+            if (!parse_url(optarg, &authority, &path_prefix)) {
+                fprintf(stderr, "Unable to recognise '%s' as a URL", optarg);
+                usage = 1;
+                err_out = 1;
+            }
+            break;
         default:
             usage = 1;
             err_out = 1;
@@ -892,15 +976,15 @@ int main(int argc, char *argv[])
     if (g_server_session.mcast_addr.ss_family !=
         g_server_session.send_addr.ss_family) {
         fprintf(stderr, "Multicast group and source interface address must be in the same address family.\n");
-	exit(2);
+        exit(2);
     }
 
     for (mcast_ifc_list *ifc = ifcs; ifc; ifc = ifc->ifc_next) {
         if (_match_sockaddr((struct sockaddr*)&g_server_session.send_addr,
                             ifc->ifc_addr)) {
             ifc_idx = ifc->ifc_idx;
-	    break;
-	}
+            break;
+        }
     }
 
     free_multicast_interfaces(ifcs);
@@ -915,26 +999,29 @@ int main(int argc, char *argv[])
                             ifc_idx);
     if (g_server_session.mcast_addr.ss_family == AF_INET) {
         setsockopt (g_server_session.socket, SOL_IP, IP_MULTICAST_LOOP, &on,
-		    sizeof(on));
+                    sizeof(on));
         setsockopt (g_server_session.socket, SOL_IP, IP_MULTICAST_TTL, &ttl,
                     sizeof(ttl));
     } else {
-	setsockopt (g_server_session.socket, SOL_IPV6, IPV6_MULTICAST_LOOP, &on,
+        setsockopt (g_server_session.socket, SOL_IPV6, IPV6_MULTICAST_LOOP, &on,
                     sizeof(on));
-	setsockopt (g_server_session.socket, SOL_IPV6, IPV6_MULTICAST_HOPS,
-		    &ttl, sizeof(ttl));
+        setsockopt (g_server_session.socket, SOL_IPV6, IPV6_MULTICAST_HOPS,
+                    &ttl, sizeof(ttl));
     }
 
     ev_io_init (&g_server_session.socket_writable, socket_writable_cb,
-		g_server_session.socket, EV_WRITE);
+                g_server_session.socket, EV_WRITE);
     g_server_session.socket_writable.data = &g_server_session;
 
     ev_idle_init (&g_server_session.send_idle, send_idle_cb);
     g_server_session.send_idle.data = &g_server_session;
 
+    ev_idle_init (&g_server_session.recv_idle, recv_idle_cb);
+    g_server_session.recv_idle.data = &g_server_session;
+
     g_server_session.session = nghq_session_server_new (&g_callbacks,
-					&g_settings, &g_trans_settings,
-					&g_server_session);
+                                        &g_settings, &g_trans_settings,
+                                        &g_server_session);
 
     ev_io_start (EV_DEFAULT_UC_ &g_server_session.socket_writable);
 

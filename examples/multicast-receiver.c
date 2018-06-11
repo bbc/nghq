@@ -69,17 +69,17 @@ typedef struct session_data {
 static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
                         void *session_user_data)
 {
-    session_data *sdata = (session_data*)session_user_data;
-    ssize_t result;
-    result = recv(sdata->socket, data, len, 0);
-    if (result < 0) {
-      if (errno != EWOULDBLOCK && errno != EAGAIN) {
-        return NGHQ_ERROR;
-      }
-      return 0;
+  session_data *sdata = (session_data*)session_user_data;
+  ssize_t result;
+  result = recv(sdata->socket, data, len, 0);
+  if (result < 0) {
+    if (errno != EWOULDBLOCK && errno != EAGAIN) {
+      return NGHQ_ERROR;
     }
-    printf("packet recv: Received %zd bytes of data\n", result);
-    return result;
+    return 0;
+  }
+  printf("packet recv: Received %zd bytes of data\n", result);
+  return result;
 }
 
 static ssize_t decrypt_cb (nghq_session *session, const uint8_t *encrypted,
@@ -214,13 +214,15 @@ static nghq_settings g_settings = {
 };
 
 static nghq_transport_settings g_trans_settings = {
-    NGHQ_MODE_MULTICAST,  /* mode */
-    16,                   /* max_open_requests */
-    16,                   /* max_open_server_pushes */
-    60,                   /* idle_timeout (seconds) */
-    1500,                 /* max_packet_size */
-    0,  /* use default */ /* ack_delay_exponent */
-    1                     /* connection id */
+    NGHQ_MODE_MULTICAST,         /* mode */
+    16,                          /* max_open_requests */
+    16,                          /* max_open_server_pushes */
+    60,                          /* idle_timeout (seconds) */
+    1481,                        /* max_packet_size */
+    0,  /* use default */        /* ack_delay_exponent */
+    1,                           /* connection id */
+    UINT32_C(2)*1024*1024*1024,  /* max_stream_data */
+    UINT64_MAX                   /* max_data */
 };
 
 static void socket_readable_cb (EV_P_ ev_io *w, int revents)
@@ -461,5 +463,5 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-/* vim:ts=8:sts=4:sw=4:expandtab:
+/* vim:ts=8:sts=2:sw=2:expandtab:
  */
