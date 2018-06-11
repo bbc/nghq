@@ -123,6 +123,9 @@ typedef struct {
   uint8_t ack_delay_exponent;
 
   uint64_t init_conn_id;
+
+  uint32_t max_stream_data;
+  uint64_t max_data;
 } nghq_transport_settings;
 
 #define NGHQ_SETTINGS_HEADER_TABLE_SIZE 0x0001

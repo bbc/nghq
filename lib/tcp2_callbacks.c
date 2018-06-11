@@ -147,6 +147,7 @@ int nghq_transport_handshake_completed (ngtcp2_conn *conn, void *user_data) {
     /* This should open Stream 4 for us */
     nghq_req_stream_new(session);
   }
+  session->handshake_complete = 1;
   return 0;
 }
 
@@ -179,18 +180,6 @@ ssize_t nghq_transport_encrypt (ngtcp2_conn *conn, uint8_t *dest,
          "nonce(%lu), ad(%lu), %p)\n", (void *) conn, destlen, plaintextlen,
          keylen, noncelen, adlen, user_data);
   nghq_session *session = (nghq_session *) user_data;
-  if (session->mode == NGHQ_MODE_MULTICAST) {
-    ngtcp2_pkt_hd hdr;
-    ngtcp2_frame frame;
-    ssize_t read = ngtcp2_pkt_decode_hd (&hdr, plaintext, plaintextlen);
-    while (read < plaintextlen) {
-      read += ngtcp2_pkt_decode_frame(&frame, plaintext + read,
-                                      plaintextlen - read);
-      if (nghq_mcast_swallow (session, &hdr, &frame)) {
-        return -1;
-      }
-    }
-  }
   return session->callbacks.encrypt_callback (session, plaintext, plaintextlen,
                                               nonce, noncelen, ad, adlen,
                                               dest, destlen,

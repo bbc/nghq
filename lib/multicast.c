@@ -202,7 +202,7 @@ static const uint8_t fake_client_initial_packet[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1189 - 1196 */
     0x00, 0x00, 0x00                                /* padding 1197 - 1199 */
 };
-#define LENGTH_INITIAL_PACKET 1200
+#define LENGTH_INITIAL_PACKET sizeof(fake_client_initial_packet)
 
 static const uint8_t fake_server_handshake_packet[] = {
     0xfd,     /* Long header | Handshake packet */
@@ -238,13 +238,13 @@ static const uint8_t fake_server_handshake_packet[] = {
     0x00,       /* Length = 0 */ /* TODO: Add SETTINGS frame */
 };
 
-#define LENGTH_SERVER_HANDSHAKE_PACKET 93
+#define LENGTH_SERVER_HANDSHAKE_PACKET sizeof(fake_server_handshake_packet)
 
 static const uint8_t fake_client_stream_4_packet[] = {
-    0x1d, /* Short header | ConnID present | Key Phase 0 | PktNum 4 octets*/
+    0x1f, /* Short header | ConnID present | Key Phase 0 | PktNum 4 octets*/
     0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x01, /* connection id = 1 */
-    0x00, 0x00, 0x00, 0x02, /* Packet number = 2 */
+    0x02, /* Packet number = 2 */
     0x12, /* Stream frame with length */
     0x04,   /* Stream ID = 4 */
     0x13,   /* Length = 19 */
@@ -253,10 +253,11 @@ static const uint8_t fake_client_stream_4_packet[] = {
     0x73, 0x74, 0x20, 0x6d, 0x61, 0x67, 0x69, 0x63
 };
 
-#define LENGTH_CLIENT_STREAM_4_PACKET 35
+#define LENGTH_CLIENT_STREAM_4_PACKET sizeof(fake_client_stream_4_packet)
 
 size_t get_fake_client_initial_packet (uint64_t conn_id, uint32_t init_pkt_num,
-                                       uint8_t **pkt) {
+                                       uint32_t init_max_stream_data,
+                                       uint32_t init_max_data, uint8_t **pkt) {
   uint8_t *buf = (uint8_t *) malloc (LENGTH_INITIAL_PACKET);
   if (buf == NULL) {
     return 0;
@@ -266,13 +267,16 @@ size_t get_fake_client_initial_packet (uint64_t conn_id, uint32_t init_pkt_num,
 
   put_uint64_in_buf (buf + 1, conn_id);
   put_uint32_in_buf (buf + 13, init_pkt_num);
+  put_uint32_in_buf (buf + 30, init_max_stream_data);
+  put_uint32_in_buf (buf + 38, init_max_data);
 
   *pkt = buf;
   return LENGTH_INITIAL_PACKET;
 }
 
 size_t get_fake_server_handshake_packet (uint64_t conn_id, uint32_t pkt_num,
-                                         uint8_t **pkt) {
+                                         uint32_t init_max_stream_data,
+                                         uint32_t init_max_data, uint8_t **pkt) {
   uint8_t *buf = (uint8_t *) malloc (LENGTH_SERVER_HANDSHAKE_PACKET);
   if (buf == NULL) {
     return 0;
@@ -282,14 +286,18 @@ size_t get_fake_server_handshake_packet (uint64_t conn_id, uint32_t pkt_num,
 
   put_uint64_in_buf (buf + 1, conn_id);
   put_uint32_in_buf (buf + 13, pkt_num);
+  put_uint32_in_buf (buf + 36, init_max_stream_data);
+  put_uint32_in_buf (buf + 44, init_max_data);
 
   *pkt = buf;
   return LENGTH_SERVER_HANDSHAKE_PACKET;
 }
 
 size_t get_fake_client_stream_4_packet (uint64_t conn_id, uint32_t pkt_num,
-                                        uint8_t **pkt) {
-  uint8_t *buf = (uint8_t *) malloc (LENGTH_CLIENT_STREAM_4_PACKET);
+                                        uint64_t max_data, uint8_t **pkt) {
+  size_t len = LENGTH_CLIENT_STREAM_4_PACKET + 1 +
+        _make_varlen_int(NULL, max_data);
+  uint8_t *buf = (uint8_t *) malloc (len);
   if (buf == NULL) {
     return 0;
   }
@@ -297,8 +305,11 @@ size_t get_fake_client_stream_4_packet (uint64_t conn_id, uint32_t pkt_num,
   memcpy (buf, fake_client_stream_4_packet, LENGTH_CLIENT_STREAM_4_PACKET);
 
   put_uint64_in_buf (buf + 1, conn_id);
-  put_uint32_in_buf (buf + 9, pkt_num);
+  buf[9] = pkt_num & 0xff;
+
+  buf[LENGTH_CLIENT_STREAM_4_PACKET] = 0x04; /* MAX_DATA frame */
+  _make_varlen_int(buf + LENGTH_CLIENT_STREAM_4_PACKET + 1, max_data);
 
   *pkt = buf;
-  return LENGTH_CLIENT_STREAM_4_PACKET;
+  return len;
 }

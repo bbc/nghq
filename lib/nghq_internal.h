@@ -101,6 +101,9 @@ struct nghq_session {
   nghq_mode       mode;
   int             handshake_complete;
 
+  uint8_t         remote_pktnum;
+  uint64_t        last_remote_pkt_num;
+
   /* Application-specific stuff */
   nghq_callbacks  callbacks;
   nghq_settings   settings;
@@ -141,6 +144,8 @@ int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id);
 
 int nghq_mcast_swallow (nghq_session* session, const ngtcp2_pkt_hd *hd,
                         const ngtcp2_frame *fr);
+
+void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd);
 
 nghq_stream *nghq_stream_new (uint64_t stream_id);
 nghq_stream *nghq_req_stream_new(nghq_session* session);

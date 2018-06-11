@@ -30,13 +30,15 @@
 #include <stddef.h>
 
 size_t get_fake_client_initial_packet (uint64_t conn_id, uint32_t init_pkt_num,
-                                       uint8_t **pkt);
+                                       uint32_t init_max_stream_data,
+                                       uint32_t init_max_data, uint8_t **pkt);
 
 size_t get_fake_server_handshake_packet (uint64_t conn_id, uint32_t pkt_num,
-                                         uint8_t **pkt);
+                                         uint32_t init_max_stream_data,
+                                         uint32_t init_max_data, uint8_t **pkt);
 
 size_t get_fake_client_stream_4_packet (uint64_t conn_id, uint32_t pkt_num,
-                                        uint8_t **pkt);
+                                        uint64_t max_data, uint8_t **pkt);
 
 static const uint8_t quic_mcast_magic[] = {
     0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */

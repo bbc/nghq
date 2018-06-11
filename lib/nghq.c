@@ -42,6 +42,8 @@
 
 #include "debug.h"
 
+#define MIN(a,b) ((a<b)?(a):(b))
+
 nghq_stream * nghq_stream_init() {
   nghq_stream *stream = (nghq_stream *) malloc (sizeof(nghq_stream));
   if (stream == NULL) {
@@ -102,6 +104,9 @@ nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
 
   session->send_buf = NULL;
   session->recv_buf = NULL;
+
+  session->remote_pktnum = 2;
+  session->last_remote_pkt_num = 0;
 
   return session;
 }
@@ -166,8 +171,10 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
   ngtcp2_settings tcp2_settings;
   tcp2_settings.initial_ts = get_timestamp_now();
   tcp2_settings.log_printf = nghq_transport_debug;
-  tcp2_settings.max_stream_data = 256 * 1024;
-  tcp2_settings.max_data = 1 * 1024 * 1024;
+  tcp2_settings.max_stream_data = (transport->max_stream_data)?
+                                      (transport->max_stream_data):(256 * 1024);
+  tcp2_settings.max_data = (transport->max_data)?(transport->max_data):
+                               (1 * 1024 * 1024);
   tcp2_settings.max_stream_id_bidi = session->max_open_requests;
   tcp2_settings.max_stream_id_uni = session->max_open_server_pushes;
   tcp2_settings.idle_timeout = transport->idle_timeout;
@@ -210,7 +217,8 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
     /* Fake handshake for multicast */
     uint8_t *fake_server_handshake;
     size_t len_server_hs = get_fake_server_handshake_packet (
-        session->connection_id, 1, &fake_server_handshake);
+        session->connection_id, 1, tcp2_settings.max_stream_data,
+        tcp2_settings.max_data, &fake_server_handshake);
     result = ngtcp2_conn_handshake (session->ngtcp2_session, init_buf,
                                     session->transport_settings.max_packet_size,
                                     fake_server_handshake, len_server_hs,
@@ -302,8 +310,10 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
   ngtcp2_settings tcp2_settings;
   tcp2_settings.initial_ts = get_timestamp_now();
   tcp2_settings.log_printf = nghq_transport_debug;
-  tcp2_settings.max_stream_data = 256 * 1024;
-  tcp2_settings.max_data = 1 * 1024 * 1024;
+  tcp2_settings.max_stream_data = (transport->max_stream_data)?
+                                      (transport->max_stream_data):(256 * 1024);
+  tcp2_settings.max_data = (transport->max_data)?(transport->max_data):
+                               (1 * 1024 * 1024);
   tcp2_settings.max_stream_id_bidi = session->max_open_requests;
   tcp2_settings.max_stream_id_uni = session->max_open_server_pushes;
   tcp2_settings.idle_timeout = transport->idle_timeout;
@@ -311,7 +321,7 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
   tcp2_settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
   tcp2_settings.ack_delay_exponent = NGTCP2_DEFAULT_ACK_DELAY_EXPONENT;
 
-  uint64_t conn_id = 1;
+  uint64_t conn_id = session->connection_id;
 
   result = ngtcp2_conn_server_new(&session->ngtcp2_session, conn_id,
                                   NGTCP2_PROTO_VER_D9, &tcp2_callbacks,
@@ -329,7 +339,9 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     ssize_t encoded_params_size = 128;
 
     len_client_init = get_fake_client_initial_packet (session->connection_id,
-                                                      0, &in_buf);
+                                       0, tcp2_settings.max_stream_data,
+                                       MIN(UINT32_MAX, tcp2_settings.max_data),
+                                       &in_buf);
     result = ngtcp2_accept(&hd, in_buf, len_client_init);
     if (result < 0) {
       ERROR("The fake client initial packet was not accepted by ngtcp2: %s\n",
@@ -362,6 +374,8 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
                              NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS);
     params.v.ee.len = 1;
     params.v.ee.supported_versions[0] = NGTCP2_PROTO_VER_D9;
+    params.initial_max_stream_data = tcp2_settings.max_stream_data;
+    params.initial_max_data = tcp2_settings.max_data;
     params.initial_max_stream_id_bidi = 4;
     params.initial_max_stream_id_uni = 0x3FFFFFFF;
 
@@ -430,8 +444,9 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     }
 
     uint8_t *strm4pkt;
-    size_t len_strm4_pkt = get_fake_client_stream_4_packet (session->connection_id,
-                                                            2, &strm4pkt);
+    size_t len_strm4_pkt = get_fake_client_stream_4_packet (
+                                            session->connection_id, 2,
+                                            tcp2_settings.max_data, &strm4pkt);
     result = ngtcp2_conn_recv(session->ngtcp2_session, strm4pkt, len_strm4_pkt,
                               get_timestamp_now());
 
@@ -489,14 +504,15 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
         static const char key##_field[] = field; \
         static const char key##_value[] = value; \
         static const nghq_header key = {(uint8_t *) key##_field, sizeof(key##_field)-1, (uint8_t *) key##_value, sizeof(key##_value)-1};
-	MAKE_HEADER(req_method, ":method", "GET");
-	MAKE_HEADER(req_path, ":path", "goaway");
-	MAKE_HEADER(req_connection, "Connection", "close");
+        MAKE_HEADER(req_method, ":method", "GET");
+        MAKE_HEADER(req_scheme, ":scheme", "http");
+        MAKE_HEADER(req_path, ":path", "goaway");
+        MAKE_HEADER(req_connection, "connection", "close");
         static const nghq_header *req[] = {
-            &req_method, &req_path, &req_connection
+            &req_method, &req_scheme, &req_path, &req_connection
         };
-	MAKE_HEADER(resp_status, ":status", "200");
-	MAKE_HEADER(resp_connection, "Connection", "close");
+        MAKE_HEADER(resp_status, ":status", "200");
+        MAKE_HEADER(resp_connection, "connection", "close");
         static const nghq_header *resp[] = {
             &resp_status, &resp_connection
         };
@@ -713,6 +729,8 @@ int nghq_session_send (nghq_session *session) {
         }
         last_data = 0;
       }
+    } else {
+      return NGHQ_SESSION_BLOCKED;
     }
 
     new_pkt->buf_len = pkt_len;
@@ -938,8 +956,8 @@ int nghq_submit_push_promise (nghq_session *session,
     }
   }
 
-  uint8_t* push_promise_buf;
-  size_t push_promise_len;
+  uint8_t* push_promise_buf = NULL;
+  size_t push_promise_len = 0;
 
   DEBUG("Creating new push promise %lu with %lu headers\n",
         session->next_push_promise, num_hdrs);
@@ -1523,7 +1541,7 @@ int nghq_write_send_buffer (nghq_session* session) {
 
     if (written != session->send_buf->buf_len) {
       if (written == 0) {
-	rv = NGHQ_SESSION_BLOCKED;
+        rv = NGHQ_SESSION_BLOCKED;
         break;
       } else if (written == NGHQ_EOF) {
         rv = NGHQ_EOF;
@@ -1531,6 +1549,15 @@ int nghq_write_send_buffer (nghq_session* session) {
       }
       rv = NGHQ_ERROR;
       break;
+    }
+
+    if (session->mode == NGHQ_MODE_MULTICAST && session->handshake_complete) {
+        ngtcp2_pkt_hd hdr;
+        ssize_t read = ngtcp2_pkt_decode_hd (&hdr, session->send_buf->buf,
+                                             session->send_buf->buf_len);
+        if (read > 0) {
+          nghq_mcast_fake_ack (session, &hdr);
+        }
     }
 
     free (session->send_buf->buf);
@@ -1657,19 +1684,45 @@ int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id) {
   return NGHQ_OK;
 }
 
+static uint64_t _pkt_num_mask(uint64_t pkt_num) {
+  if (pkt_num < 0x100) return UINT64_C(0xff);
+  if (pkt_num < 0x10000) return UINT64_C(0xffff);
+  return UINT64_C(0xffffffff);
+}
+
+static uint64_t _calc_pkt_number (nghq_session* session, uint64_t pkt_num) {
+  uint64_t rv = pkt_num;
+  if (rv < session->last_remote_pkt_num) {
+    uint64_t mask = _pkt_num_mask(pkt_num);
+    rv |= session->last_remote_pkt_num & ~mask;
+    if (rv < session->last_remote_pkt_num) rv += mask + 1;
+  }
+  session->last_remote_pkt_num = rv;
+  return rv;
+}
+
 void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd) {
   /*
    * Generate a fake ACK to feed back into ngtcp2 to keep it happy that
    * everything sent has been successfully received.
    */
-  nghq_io_buf *fake = (nghq_io_buf *) malloc (sizeof(nghq_io_buf *));
+  nghq_io_buf *fake = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
   if (fake == NULL) {
     return;
   }
-  uint64_t acklen = 1;  /* Frame Type is 1 byte at the start (0x0e for ACK) */
-  acklen += _make_varlen_int(NULL, hd->pkt_num);  /* Largest Acknowledged */
+  uint64_t real_pkt_num = _calc_pkt_number(session, hd->pkt_num);
+  /*
+   * Short frame header:
+   *    * 1 byte type
+   *    * 8 bytes connection ID
+   *    * 1 bytes packet number (type = 0x1F)
+   *
+   * Then one more byte for the Frame type in the payload header type
+   */
+  uint64_t acklen = 11;
+  acklen += _make_varlen_int(NULL, real_pkt_num); /* Largest Acknowledged */
   acklen += _make_varlen_int(NULL, 0);            /* ACK Delay */
-  acklen += _make_varlen_int(NULL, 1);            /* ACK Block Count */
+  acklen += _make_varlen_int(NULL, 0);            /* ACK Block Count */
   acklen += _make_varlen_int(NULL, 0);            /* First ACK Block */
 
   fake->buf = (uint8_t *) malloc (acklen);
@@ -1678,11 +1731,15 @@ void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd) {
     return;
   }
 
-  acklen = 1;
-  fake->buf[0] = NGTCP2_FRAME_ACK;
-  acklen += _make_varlen_int(fake->buf + acklen, hd->pkt_num);
+  acklen = 11;
+  fake->buf[0] = 0x1f; /* 1 byte packet number */
+  put_uint64_in_buf(fake->buf + 1, session->connection_id);
+  fake->buf[9] = session->remote_pktnum;
+  session->remote_pktnum++;
+  fake->buf[10] = NGTCP2_FRAME_ACK;
+  acklen += _make_varlen_int(fake->buf + acklen, real_pkt_num);
   acklen += _make_varlen_int(fake->buf + acklen, 0);
-  acklen += _make_varlen_int(fake->buf + acklen, 1);
+  acklen += _make_varlen_int(fake->buf + acklen, 0);
   acklen += _make_varlen_int(fake->buf + acklen, 0);
 
   fake->buf_len = acklen;
