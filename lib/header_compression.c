@@ -83,7 +83,7 @@ int nghq_init_hdr_compression_ctx(nghq_hdr_compression_ctx **ctx) {
 ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
                           size_t block_len, int final_block,
                           nghq_header ***hdrs, size_t* num_hdrs) {
-  int inflate_flags, i;
+  int inflate_flags=0, i;
   *num_hdrs = 0;
   //ssize_t remaining = block_len;
 
@@ -117,14 +117,14 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
       return NGHQ_HDR_COMPRESS_FAILURE;
     }
 
-    hdr_block += (uint8_t) processed;
-    block_len -= (uint8_t) processed;
+    hdr_block += (size_t) processed;
+    block_len -= (size_t) processed;
 
     if (inflate_flags & NGHTTP2_HD_INFLATE_EMIT) {
-      DEBUG("Inflated header - %s: %s\n", nv_out.name, nv_out.value);
+      DEBUG("Inflated header - %.*s: %.*s\n", (int)nv_out.namelen, nv_out.name, (int)nv_out.valuelen, nv_out.value);
       if (list == NULL) {
-        int rv = _create_header(&list, nv_out.name, nv_out.namelen, nv_out.value,
-                                nv_out.valuelen);
+        int rv = _create_header(&list, nv_out.name, nv_out.namelen,
+                                nv_out.value, nv_out.valuelen);
         if (rv != NGHQ_OK) {
           ERROR("Failed to create header!\n");
           return rv;
@@ -186,7 +186,8 @@ int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
   }
 
   for (i = 0; i < num_hdrs; i++) {
-    DEBUG("Compressing header - %s: %s\n", hdrs[i]->name, hdrs[i]->value);
+    DEBUG("Compressing header - %.*s: %.*s\n", (int)hdrs[i]->name_len,
+          hdrs[i]->name, (int)hdrs[i]->value_len, hdrs[i]->value);
     nva[i].name = hdrs[i]->name;
     nva[i].namelen = hdrs[i]->name_len;
     nva[i].value = hdrs[i]->value;
