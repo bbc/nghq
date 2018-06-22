@@ -888,22 +888,11 @@ int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
     return NGHQ_TOO_MANY_REQUESTS;
   }
 
-  new_stream = nghq_stream_init();
+  new_stream = nghq_req_stream_new(session);
   if (new_stream == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
   new_stream->user_data = request_user_data;
-
-  rv = ngtcp2_conn_open_bidi_stream(session->ngtcp2_session,
-                                    &new_stream->stream_id, (void*) new_stream);
-
-  if (rv != 0) {
-    if (rv == NGTCP2_ERR_NOMEM) {
-      return NGHQ_OUT_OF_MEMORY;
-    } else if (rv == NGTCP2_ERR_STREAM_ID_BLOCKED) {
-      return NGHQ_TOO_MANY_REQUESTS;
-    }
-  }
 
   rv = nghq_feed_headers (session, hdrs, num_hdrs, final, request_user_data);
   if (rv != NGHQ_OK) {
