@@ -275,7 +275,7 @@ extern int nghq_session_recv (nghq_session *session);
  *    bytes in flight
  * @return NGHQ_OUT_OF_MEMORY if an internal part of the library failed to
  *    allocate memory
- * @return NGHQ_SESSION_CLOED If the session has been closed, the application
+ * @return NGHQ_SESSION_CLOSED If the session has been closed, the application
  *    should call nghq_session_free() and close the underlying connection.
  */
 extern int nghq_session_send (nghq_session *session);
