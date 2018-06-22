@@ -148,6 +148,8 @@ typedef struct {
 #define NGHQ_HEADERS_FLAGS_END_REQUEST 0x1
 #define NGHQ_HEADERS_FLAGS_TRAILERS 0x2
 
+#define NGHQ_DATA_FLAGS_END_DATA 0x1
+
 /*
  * NGHQ Session Functions
  */
