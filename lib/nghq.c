@@ -1076,6 +1076,8 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
                                num_hdrs, &buf, &buf_len);
     if (rv < 0) {
       return rv;
+    } else {
+      rv = NGHQ_OK;
     }
 
     nghq_stream_id_map_add(session->transfers, stream_id, stream);
@@ -1108,6 +1110,8 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
 
     if (rv < 0) {
       return rv;
+    } else {
+      rv = NGHQ_OK;
     }
   }
 
