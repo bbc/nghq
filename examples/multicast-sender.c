@@ -410,7 +410,8 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
             while (res > 0) {
                 do {
                     result = nghq_feed_payload_data (g_server_session.session,
-                                              read_buffer + off, res, 0,
+                                              read_buffer + off, res,
+                                              sent_bytes == file_size,
                                               (void*)promise_request_user_data);
                     ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
                     ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
@@ -425,9 +426,6 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
             }
         }
     }
-    nghq_end_request (g_server_session.session, NGHQ_OK,
-                      (void*)promise_request_user_data);
-
     /* flush data out */
     ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
     ev_run(EV_DEFAULT_UC_ 0);
