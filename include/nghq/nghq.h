@@ -471,38 +471,55 @@ typedef int (*nghq_recv_control_data_callback) (nghq_session *session,
 /**
  * @brief Signify the arrival of the first HEADERS
  *
- * This function will be called when the library has received either a HEADERS
- * frame for a new stream or PUSH_PROMISE frame. The @p type is defined by the
- * nghq_headers_type enum, and can be either NGHQ_HT_HEADERS or
- * NGHQ_HT_PUSH_PROMISE.
- *
- * If the @p type is NGHQ_HT_HEADERS and this is a client instance, then this
- * will be the start of the server's response to a request. If this is a server
+ * This function will be called when the library has received the first HEADERS
+ * frame for a new stream from the remote endpoint. Commonly, then this will be
+ * the start of the server's response to a request. If this is a server
  * instance, then this will be the start of a new client request. The
  * request_user_data will be the same pointer that was passed into
  * nghq_submit_request().
- *
- * If the @p type is NGHQ_HT_PUSH_PROMISE and this is a client instance, then
- * this will be the start of a Push Promise from the server. Server instances
- * will never receive PUSH_PROMISE frames from clients, so should never see this
- * type. It is expected that the client application will call
- * nghq_set_request_user_data to set the stream data for the pushed response.
- * The @p request_user_data that is passed in with this function is guaranteed
- * to be unique to the request or push promise, and the client may use this as a
- * reference if it prefers to keep it's own state pointers, but the actual value
- * is an opaque type and cannot be used for application storage. Any
- * modification of this value directly will cause undefined behaviour. However,
- * by supplying this as the first argument to nghq_set_request_user_data(),
- * you may override it with your own pointer, in order to use the
- * request_user_data as application storage.
  *
  * @return NGHQ_OK if happy to receive the data for this request or response, or
  *    NGHQ_NOT_INTERESTED and the request will be closed
  */
 typedef int (*nghq_on_begin_headers_callback) (nghq_session *session,
-                                               nghq_headers_type type,
                                                void *session_user_data,
                                                void *request_user_data);
+
+/**
+ * @brief Signify that a push promise has been received
+ *
+ * This function will be called when the library has received a PUSH_PROMISE
+ * frame from the remote endpoint.
+ *
+ * The @p request_user_data pointer is the user data associated with the request
+ * that this new promise is associated with, as all promises must be tied to a
+ * normal request object.
+ *
+ * If this is a client instance, then this will be the start of a Push Promise
+ * from the server. Server instances will never receive PUSH_PROMISE frames from
+ * clients, so should never see this callback. It is expected that the client
+ * application will call nghq_set_request_user_data to set the stream data for
+ * the pushed response. The @p promise_user_data that is passed in with this
+ * function is guaranteed to be unique to the request or push promise, and the
+ * client may use this as a reference if it prefers to keep it's own state
+ * pointers, but the actual value is an opaque type and cannot be used for
+ * application storage. Any modification of this value directly will cause
+ * undefined behaviour. However, by supplying this as the first argument to
+ * nghq_set_request_user_data(), you may override it with your own pointer, in
+ * order to use the request_user_data as application storage.
+ *
+ * After this callback is completed, you should receive the PUSH_PROMISE headers
+ * via a series of nghq_on_headers_callback() callbacks, with the value set as
+ * @p promise_user_data in @p request_user_data. When the promise is converted
+ * into a server push, then you should receive an
+ * nghq_on_begin_headers_callback() call as normal.
+ *
+ * @return NGHQ_OK if happy to receive this new push promise.
+ */
+typedef int (*nghq_on_begin_promise_callback) (nghq_session *session,
+                                               void *session_user_data,
+                                               void *request_user_data,
+                                               void *promise_user_data);
 
 /**
  * @brief Deliver a HTTP header to the application as a name-value pair
@@ -838,6 +855,7 @@ struct nghq_callbacks {
   nghq_session_status_callback    session_status_callback;
   nghq_recv_control_data_callback recv_control_data_callback;
   nghq_on_begin_headers_callback  on_begin_headers_callback;
+  nghq_on_begin_promise_callback  on_begin_promise_callback;
   nghq_on_headers_callback        on_headers_callback;
   nghq_on_data_recv_callback      on_data_recv_callback;
   nghq_on_push_cancel_callback    on_push_cancel_callback;

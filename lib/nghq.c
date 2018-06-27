@@ -1300,10 +1300,14 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
       size_t num_hdrs;
       switch (stream->recv_state) {
         case STATE_OPEN:
-          session->callbacks.on_begin_headers_callback(session,
-                                                       NGHQ_HT_HEADERS,
-                                                       session->session_user_data,
-                                                       stream->user_data);
+          if (session->callbacks.on_begin_headers_callback) {
+            int rv = session->callbacks.on_begin_headers_callback(session,
+                                                     session->session_user_data,
+                                                     stream->user_data);
+            if (rv != NGHQ_OK) {
+              return rv;
+            }
+          }
           stream->recv_state = STATE_HDRS;
           break;
         case STATE_HDRS:
@@ -1327,15 +1331,17 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
         uint8_t flags = 0;
 
         if (STREAM_STARTED(stream->flags)) {
-          rv = session->callbacks.on_begin_headers_callback(session,
-                    NGHQ_HT_HEADERS, session->session_user_data,
-                    stream->user_data);
-          if (rv != NGHQ_OK) {
-            return rv;
+          if (session->callbacks.on_begin_headers_callback) {
+            rv = session->callbacks.on_begin_headers_callback(session,
+                      session->session_user_data,
+                      stream->user_data);
+            if (rv != NGHQ_OK) {
+              return rv;
+            }
           }
         }
 
-        if (stream->recv_state >= STATE_HDRS) {
+        if (stream->recv_state > STATE_HDRS) {
           flags += NGHQ_HEADERS_FLAGS_TRAILERS;
         }
 
@@ -1421,11 +1427,15 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
         if (hdrs != NULL) {
           int rv;
 
-          rv = session->callbacks.on_begin_headers_callback(session,
-                    NGHQ_HT_PUSH_PROMISE, session->session_user_data,
-                    new_promised_stream->user_data);
-          if (rv != NGHQ_OK) {
-            return rv;
+          if (session->callbacks.on_begin_promise_callback) {
+            rv = session->callbacks.on_begin_promise_callback(session,
+                                session->session_user_data, stream->user_data,
+                                new_promised_stream->user_data);
+            if (rv != NGHQ_OK) {
+              return rv;
+            }
+          } else {
+            return NGHQ_NOT_INTERESTED;
           }
           new_promised_stream->recv_state = STATE_HDRS;
 

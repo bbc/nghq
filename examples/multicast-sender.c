@@ -600,15 +600,10 @@ static int recv_control_data_cb (nghq_session *session, const uint8_t *buf,
   return NGHQ_OK;
 }
 
-static int on_begin_headers_cb (nghq_session *session, nghq_headers_type type,
+static int on_begin_headers_cb (nghq_session *session,
                                 void *session_user_data,
                                 void *request_user_data)
 {
-    /* server_session *sdata = (server_session*)session_user_data; */
-    if (type == NGHQ_HT_PUSH_PROMISE) {
-        /* can't push to a server */
-        return NGHQ_ERROR;
-    }
     /* incoming request - but we're multicast - so this is an error! */
     /* TODO: interpret the request for unicast server */
     return NGHQ_ERROR;
@@ -648,6 +643,7 @@ static nghq_callbacks g_callbacks = {
     session_status_cb,
     recv_control_data_cb,
     on_begin_headers_cb,
+    NULL,
     on_headers_cb,
     on_data_recv_cb,
     on_push_cancel_cb,

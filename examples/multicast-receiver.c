@@ -126,18 +126,23 @@ static int recv_control_data_cb (nghq_session *session, const uint8_t *buf,
   return NGHQ_OK;
 }
 
-static int on_begin_headers_cb (nghq_session *session, nghq_headers_type type,
+static int on_begin_headers_cb (nghq_session *session,
                                 void *session_user_data,
                                 void *request_user_data)
 {
     session_data *data = (session_data*)session_user_data;
-    if (type == NGHQ_HT_PUSH_PROMISE) {
-        push_request *new_request = calloc(1, sizeof(push_request));
-        nghq_set_request_user_data(session, request_user_data, new_request);
-    } else {
-        push_request *req = (push_request*)request_user_data;
-        req->headers_incoming = HEADERS_RESPONSE;
-    }
+    push_request *req = (push_request*)request_user_data;
+    req->headers_incoming = HEADERS_RESPONSE;
+    return NGHQ_OK;
+}
+
+static int on_begin_promise_cb (nghq_session *session, void* session_user_data,
+                                void *request_user_data,
+                                void *promise_user_data)
+{
+    session_data *data = (session_data*) session_user_data;
+    push_request *new_request = calloc(1, sizeof(push_request));
+    nghq_set_request_user_data(session, request_user_data, new_request);
     return NGHQ_OK;
 }
 
@@ -202,6 +207,7 @@ static nghq_callbacks g_callbacks = {
     session_status_cb,
     recv_control_data_cb,
     on_begin_headers_cb,
+    on_begin_promise_cb,
     on_headers_cb,
     on_data_recv_cb,
     on_push_cancel_cb,
