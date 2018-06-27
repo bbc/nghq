@@ -146,23 +146,24 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
   }
 
   ngtcp2_conn_callbacks tcp2_callbacks = {
-    nghq_transport_send_client_initial,
-    nghq_transport_send_client_handshake,
-    NULL,
-    NULL,
-    nghq_transport_recv_stream0_data,
-    nghq_transport_handshake_completed,
-    nghq_transport_recv_version_negotiation,
-    nghq_transport_encrypt,   /* TODO: Do we need to replace these with    */
-    nghq_transport_decrypt,   /* handshake-specific encrypt/decrypt funcs? */
-    nghq_transport_encrypt,
-    nghq_transport_decrypt,
-    nghq_transport_recv_stream_data,
-    nghq_transport_acked_stream_data_offset,
-    nghq_transport_stream_close,
-    nghq_transport_recv_stateless_reset,
-    nghq_transport_recv_server_stateless_retry,
-    nghq_transport_extend_max_stream_id,
+    .send_client_initial = nghq_transport_send_client_initial,
+    .send_client_handshake = nghq_transport_send_client_handshake,
+    .recv_client_initial = NULL,
+    .send_server_handshake = NULL,
+    .recv_stream0_data = nghq_transport_recv_stream0_data,
+    .handshake_completed = nghq_transport_handshake_completed,
+    .recv_version_negotiation = nghq_transport_recv_version_negotiation,
+    .hs_encrypt = nghq_transport_encrypt, /*TODO: Do we need to replace these */
+    .hs_decrypt = nghq_transport_decrypt, /* with handshake-specific          */
+                                          /* encrypt/decrypt funcs?           */
+    .encrypt = nghq_transport_encrypt,
+    .decrypt = nghq_transport_decrypt,
+    .recv_stream_data = nghq_transport_recv_stream_data,
+    .acked_stream_data_offset = nghq_transport_acked_stream_data_offset,
+    .stream_close = nghq_transport_stream_close,
+    .recv_stateless_reset = nghq_transport_recv_stateless_reset,
+    .recv_server_stateless_retry = nghq_transport_recv_server_stateless_retry,
+    .extend_max_stream_id = nghq_transport_extend_max_stream_id,
   };
 
   srand(time(NULL));
@@ -747,9 +748,9 @@ int nghq_session_send (nghq_session *session) {
                                                      it->user_data);
       }
       it->send_state = STATE_DONE;
-      to_del = it;
-      it = nghq_stream_id_map_remove (session->transfers, it->stream_id);
-      nghq_stream_ended(session, to_del);
+      //to_del = it;
+      //it = nghq_stream_id_map_remove (session->transfers, it->stream_id);
+      //nghq_stream_ended(session, to_del);
       if (it == NULL) {
         break;
       }
@@ -894,18 +895,21 @@ int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
   }
   new_stream->user_data = request_user_data;
 
-  rv = nghq_feed_headers (session, hdrs, num_hdrs, final, request_user_data);
+  rv = nghq_feed_headers (session, hdrs, num_hdrs, 0,
+                          request_user_data);
   if (rv != NGHQ_OK) {
-    free (new_stream);
+    nghq_stream_id_map_remove (session->transfers, new_stream->stream_id);
+    nghq_stream_ended (session, new_stream);
     return rv;
   }
-  nghq_stream_id_map_add(session->transfers, new_stream->stream_id, new_stream);
+
   if (len > 0) {
-    return (int)nghq_feed_payload_data(session, req_body, len, final,
+    return (int)nghq_feed_payload_data(session, req_body, len, 0,
                                        request_user_data);
   }
 
   if (final) {
+    nghq_stream_id_map_remove (session->transfers, new_stream->stream_id);
     nghq_stream_ended (session, new_stream);
   }
 
@@ -986,8 +990,8 @@ int nghq_submit_push_promise (nghq_session *session,
   return NGHQ_OK;
 
 push_promise_io_err:
-  nghq_stream_ended(session, promised_stream);
   nghq_stream_id_map_remove(session->promises, promised_stream->push_id);
+  nghq_stream_ended(session, promised_stream);
 push_promise_frame_err:
   free (push_promise_buf);
 
@@ -1105,10 +1109,6 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
   }
 
   nghq_io_buf_new(&stream->send_buf, buf, buf_len, final);
-
-  if (final) {
-    nghq_stream_ended (session, stream);
-  }
 
   return rv;
 }
