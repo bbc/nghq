@@ -1,5 +1,6 @@
 #!/bin/sh
 
+fqdn=`hostname -f`
 cfg=`mktemp -d --tmpdir nghq-example-XXXXXX`
 trap "rm -rf '${cfg}'" 0 1 2 3 4 5 6 7 8 10 11 12 13 14
 
@@ -26,9 +27,15 @@ commonName			= NGHQ Example Sender
 [ req_attributes ]
 
 [ v3_ca ]
-subjectKeyIdentifier=hash
-authorityKeyIdentifier=keyid:always,issuer
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
 basicConstraints = critical,CA:true
+subjectAltName = @san
+
+[ san ]
+DNS.1 = $fqdn
 EOF
+
+/usr/sbin/ip addr | awk 'BEGIN {n=1} /^ *inet6? [0-9A-Fa-f:.]*\/.*/ {gsub(/\/.*/,"",$2); print "IP."n" = "$2; n+=1}' >> "$cfg/openssl.cfg"
 
 openssl req -config "$cfg/openssl.cfg" -new -x509 -newkey rsa:2048 -days 30 -nodes -keyout sender.key -batch -set_serial 01 -out sender.pem
