@@ -418,9 +418,11 @@ int main(int argc, char *argv[])
         exit(2);
     }
 
+    memset(&gsr, 0, sizeof(gsr));
     gsr.gsr_interface = 0;
     socklen_t addrlen = 0;
     int sol = SOL_IP;
+    static const int on = 1;
     switch (mcast_addr.ss_family) {
     case AF_INET:
         addrlen = sizeof(struct sockaddr_in);
@@ -436,6 +438,8 @@ int main(int argc, char *argv[])
 
     this_session.socket = socket (mcast_addr.ss_family,
                                   SOCK_DGRAM|SOCK_NONBLOCK, 0);
+    setsockopt (this_session.socket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    setsockopt (this_session.socket, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
     bind (this_session.socket, (struct sockaddr*)&mcast_addr,
             addrlen);
     setsockopt (this_session.socket, sol, MCAST_JOIN_SOURCE_GROUP, &gsr,

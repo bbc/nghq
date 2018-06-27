@@ -571,9 +571,9 @@ static ssize_t send_cb (nghq_session *session, const uint8_t *data, size_t len,
                         void *session_user_data)
 {
     server_session *sdata = (server_session*)session_user_data;
+    socklen_t sa_len = (sdata->mcast_addr.ss_family == AF_INET)?sizeof(struct sockaddr_in):sizeof(struct sockaddr_in6);
     ssize_t result = sendto(sdata->socket, data, len, 0,
-                            (struct sockaddr*)(&sdata->mcast_addr),
-                            sizeof(sdata->mcast_addr));
+                            (struct sockaddr*)(&sdata->mcast_addr), sa_len);
 
     ev_idle_start(EV_DEFAULT_UC_ &sdata->recv_idle); // need to fake ack
 
@@ -780,8 +780,8 @@ _bind_socket_interface (int sock, const struct sockaddr *addr, unsigned int idx)
     switch (addr->sa_family) {
     case AF_INET: {
             const struct sockaddr_in *sin = (const struct sockaddr_in*)addr;
-            setsockopt (sock, SOL_IP, IP_MULTICAST_IF, &(sin->sin_addr.s_addr),
-                        sizeof (sin->sin_addr.s_addr));
+            setsockopt (sock, SOL_IP, IP_MULTICAST_IF, &(sin->sin_addr),
+                        sizeof (sin->sin_addr));
             bind (sock, addr, sizeof (struct sockaddr_in));
         }
         break;
