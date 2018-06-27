@@ -1351,7 +1351,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
           return rv;
         }
 
-        stream->headers_off = off;
+        stream->headers_off = off + datalen;
       }
       break;
     }

@@ -254,7 +254,7 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
   }
 
   rv = nghq_recv_stream_data(session, stream, data + data_offset,
-                             datalen - data_offset, stream_offset);
+                           datalen - data_offset, stream_offset + data_offset);
   if (rv == NGHQ_NOT_INTERESTED) {
     /* Client has indicated it doesn't care about this stream anymore, so stop */
     nghq_stream_cancel (session, stream, 0);
