@@ -807,7 +807,7 @@ int nghq_session_send (nghq_session *session) {
          */
         if (new_pkt->buf[0] & 0x01) {
           DEBUG("Having to unset the final bit in the frame header!\n");
-          new_pkt->buf[0] |= 0xFE;
+          new_pkt->buf[0] &= 0xFE;
         }
         last_data = 0;
       }
