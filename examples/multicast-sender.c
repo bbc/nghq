@@ -504,6 +504,12 @@ static void _send_file_or_dir(const char *file_or_dir,
     }
 }
 
+static void copy_string(char *dest, const char *src, size_t len)
+{
+  if (len > 0) memcpy(dest, src, len);
+  dest[len] = '\0';
+}
+
 static void do_file_send(const char *authority, const char *path_prefix,
                          const char *send_dir, int recursive)
 {
@@ -522,8 +528,8 @@ static void do_file_send(const char *authority, const char *path_prefix,
         /* case where top directory is the empty string, use current dir */
         send_dir = curr_dir;
         dir_prefix_len = 2;
-    } else if (send_dir[dir_prefix_len-1] == '/') {
-        strncpy(tmp_dir, send_dir, dir_prefix_len-1);
+    } else if (send_dir[dir_prefix_len - 1] == '/') {
+        copy_string(tmp_dir, send_dir, dir_prefix_len - 1);
         send_dir = tmp_dir;
     } else {
         dir_prefix_len++;
