@@ -593,6 +593,77 @@ typedef int (*nghq_on_request_close_callback) (nghq_session *session,
                                                nghq_error status,
                                                void *request_user_data);
 
+/**
+ * @brief Timer firing callback (call into NGHQ)
+ *
+ * This is the function prototype for a function callback to use when a timer
+ * expires and is fired off. A function pointer of this type will be provided
+ * to the set_timer_callback to be called when the timer expires. This callback
+ * function may call reset_timer_callback to use the timer event again. If the
+ * timer event is not reset then it is safe to forget it.
+ *
+ * @param session A running NGHQ session.
+ * @param timer_id The timer ID for this timer event.
+ * @param nghq_data The NGHQ data provided to the set_timer_callback.
+ */
+typedef void (*nghq_timer_event) (nghq_session *session, void *timer_id,
+                                  void *nghq_data);
+
+/**
+ * @brief Set a timer event on behalf of NGHQ
+ *
+ * Inform the application that NGHQ wishes to be called back after the given
+ * number of seconds. The application should set a timed event to call back
+ * after the given time and provide a timer ID to NGHQ in the return from this
+ * callback.
+ *
+ * @param session A running NGHQ session.
+ * @param seconds The nummber of seconds to wait before calling the function.
+ * @param cb The nghq_timer_event type function to call back after the time
+ *           has elapsed.
+ * @param nghq_data An opaque data pointer to return when calling the function.
+ *
+ * @return An identifier for the set timer or NULL if the timer could not be
+ *         set.
+ */
+typedef void* (*nghq_set_timer_callback) (nghq_session *session, double seconds,
+                                          void *session_user_data,
+                                          nghq_timer_event cb, void *nghq_data);
+
+/**
+ * @brief Cancel a timer event on behalf of NGHQ
+ *
+ * Ask the application to cancel a timer event that was previously set with
+ * the set_timer_callback or reset_timer_callback.
+ *
+ * @param session A running NGHQ session.
+ * @param timer_id The timer ID as returned by a previous call to
+ *                 set_timer_callback.
+ *
+ * @return NGHQ_OK if the timer could be cancelled, or NGHQ_ERROR if the timer
+ *         does not exist.
+ */
+typedef int (*nghq_cancel_timer_callback) (nghq_session *session,
+                                           void *session_user_data,
+                                           void *timer_id);
+
+/**
+ * @brief Reset the time for a timer.
+ *
+ * Ask the application to reset the timer trigger time for a timer event.
+ *
+ * @param session A running NGHQ session.
+ * @param session_user_data The session user data provided by the application.
+ * @param timer_id The timer ID of the timer to reset.
+ * @param seconds The number of seconds to wait from now.
+ *
+ * @return NGHQ_OK if the timer was reset or NGHQ_ERROR if the timer no longer
+ *         exists.
+ */
+typedef int (*nghq_reset_timer_callback) (nghq_session *session,
+                                          void *session_user_data,
+                                          void *timer_id, double seconds);
+
 /*
  * Make requests
  */
@@ -860,6 +931,9 @@ struct nghq_callbacks {
   nghq_on_data_recv_callback      on_data_recv_callback;
   nghq_on_push_cancel_callback    on_push_cancel_callback;
   nghq_on_request_close_callback  on_request_close_callback;
+  nghq_set_timer_callback         set_timer_callback;
+  nghq_cancel_timer_callback      cancel_timer_callback;
+  nghq_reset_timer_callback       reset_timer_callback;
 };
 
 #ifdef __cplusplus

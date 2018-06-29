@@ -633,6 +633,60 @@ static int on_request_close_cb  (nghq_session *session, nghq_error status,
     printf("Request finished\n");
 }
 
+typedef struct timer_data {
+  ev_timer          timer;
+  nghq_session     *session;
+  nghq_timer_event  event_fn;
+  void             *nghq_data;
+} timer_data;
+
+static void timer_event (EV_P_ ev_timer *w, int revent)
+{
+  timer_data *timer = (timer_data*)w;
+
+  ev_timer_stop (EV_A_ w);
+
+  timer->event_fn (timer->session, timer, timer->nghq_data);
+
+  if (!ev_is_active(w)) free(timer);
+}
+
+static void *set_timer_cb (nghq_session *session, double seconds, void *session_user_data, nghq_timer_event fn, void *nghq_data)
+{
+  timer_data *timer = (timer_data*)calloc(1, sizeof(timer_data));
+  timer->session = session;
+  timer->event_fn = fn;
+  timer->nghq_data = nghq_data;
+  ev_timer_init (&timer->timer, timer_event, ev_time () + seconds, 0);
+  ev_timer_start (EV_DEFAULT_UC_ &timer->timer);
+  return timer;
+}
+
+static int cancel_timer_cb (nghq_session *session, void *session_user_data, void *timer_id)
+{
+  timer_data *timer = (timer_data*)timer_id;
+  if (timer_id == NULL) return NGHQ_ERROR;
+  if (!ev_is_active(&timer->timer)) return NGHQ_ERROR;
+  ev_timer_stop (EV_DEFAULT_UC_ &timer->timer);
+  if (ev_is_pending(&timer->timer)) {
+    ev_clear_pending (EV_DEFAULT_UC_ &timer->timer);
+  }
+  free (timer);
+  return NGHQ_OK;
+}
+
+static int reset_timer_cb (nghq_session *session, void *session_user_data, void *timer_id, double seconds)
+{
+  timer_data *timer = (timer_data*)timer_id;
+  if (timer_id == NULL) return NGHQ_ERROR;
+  if (ev_is_active(&timer->timer)) {
+    ev_timer_stop (EV_DEFAULT_UC_ &timer->timer);
+  }
+  ev_timer_set (&timer->timer, ev_time () + seconds, 0);
+  ev_timer_start (EV_DEFAULT_UC_ &timer->timer);
+  return NGHQ_OK;
+}
+
 static nghq_callbacks g_callbacks = {
     recv_cb,
     decrypt_cb,
@@ -645,7 +699,11 @@ static nghq_callbacks g_callbacks = {
     on_headers_cb,
     on_data_recv_cb,
     on_push_cancel_cb,
-    on_request_close_cb
+    on_request_close_cb,
+    set_timer_cb,
+    cancel_timer_cb,
+    reset_timer_cb
+
 };
 
 static nghq_settings g_settings = {

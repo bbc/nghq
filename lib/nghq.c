@@ -44,6 +44,80 @@
 
 #define MIN(a,b) ((a<b)?(a):(b))
 
+static void _conn_ack_timeout (nghq_session *session, void *timer_id,
+                               void *nghq_data)
+{
+  nghq_io_buf *new_pkt = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
+  new_pkt->buf = (uint8_t *) malloc(
+                                 session->transport_settings.max_packet_size);
+  new_pkt->buf_len = session->transport_settings.max_packet_size;
+
+  new_pkt->buf_len = ngtcp2_conn_write_pkt (session->ngtcp2_session,
+		                            new_pkt->buf, new_pkt->buf_len,
+					    get_timestamp_now());
+
+  nghq_io_buf_push (&session->send_buf, new_pkt);
+  nghq_write_send_buffer (session);
+}
+
+static void _conn_loss_timeout (nghq_session *session, void *timer_id,
+		                void *nghq_data)
+{
+  ngtcp2_conn_on_loss_detection_alarm (session->ngtcp2_session,
+                                       get_timestamp_now());
+}
+
+static void _adjust_timer(nghq_session *session, ngtcp2_tstamp trigger_time, ngtcp2_tstamp *tstamp, void **timer, nghq_timer_event cb, void *data)
+{
+  if (trigger_time != *tstamp) {
+    if (trigger_time == UINT64_MAX) {
+      // cancel expiry timer
+      if (*timer) {
+        session->callbacks.cancel_timer_callback (session,
+                                                  session->session_user_data,
+                                                  *timer);
+        *timer = NULL;
+      }
+    } else {
+      ngtcp2_tstamp now = get_timestamp_now ();
+      if (trigger_time <= now) {
+        // time has passed, do now and cancel any existing timer
+        cb (session, *timer, data);
+        if (*timer) {
+          session->callbacks.cancel_timer_callback (session, session->session_user_data, *timer);
+          *timer = NULL;
+          *tstamp = UINT64_MAX;
+        }
+      } else {
+        double from_now = ((double)(trigger_time - now))/1e9;
+        if (*timer) {
+          // timer already exists, update
+          session->callbacks.reset_timer_callback (session, session->session_user_data, *timer, from_now);
+        } else {
+          // create new exiry timer
+          *timer = session->callbacks.set_timer_callback (session, from_now, session->session_user_data, cb, data);
+        }
+      }
+    }
+    *tstamp = trigger_time;
+  }
+}
+
+static void _update_timers(nghq_session *session)
+{
+  ngtcp2_tstamp ts;
+
+  if (!session->callbacks.set_timer_callback) return;
+
+  ts = ngtcp2_conn_loss_detection_expiry (session->ngtcp2_session);
+  _adjust_timer(session, ts, &session->conn_loss_tstamp,
+                &session->conn_loss_timer, _conn_loss_timeout, NULL);
+
+  ts = ngtcp2_conn_ack_delay_expiry (session->ngtcp2_session);
+  _adjust_timer(session, ts, &session->conn_ack_tstamp,
+                &session->conn_ack_timer, _conn_ack_timeout, NULL);
+}
+
 nghq_stream * nghq_stream_init() {
   nghq_stream *stream = (nghq_stream *) malloc (sizeof(nghq_stream));
   if (stream == NULL) {
@@ -107,6 +181,11 @@ nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
 
   session->remote_pktnum = 2;
   session->last_remote_pkt_num = 0;
+
+  session->conn_loss_tstamp = UINT64_MAX;
+  session->conn_loss_timer = NULL;
+  session->conn_ack_tstamp = UINT64_MAX;
+  session->conn_ack_timer = NULL;
 
   return session;
 }
@@ -629,6 +708,8 @@ int nghq_session_recv (nghq_session *session) {
       return NGHQ_ERROR;
     }
 
+    _update_timers(session);
+
     rv = NGHQ_OK;
 
     if (ngtcp2_conn_in_draining_period(session->ngtcp2_session)) {
@@ -737,6 +818,8 @@ int nghq_session_send (nghq_session *session) {
     new_pkt->buf_len = pkt_len;
 
     nghq_io_buf_push(&session->send_buf, new_pkt);
+
+    _update_timers(session);
 
     rv = nghq_write_send_buffer (session);
 

@@ -119,6 +119,11 @@ struct nghq_session {
 
   nghq_io_buf*  send_buf;
   nghq_io_buf*  recv_buf;
+
+  ngtcp2_tstamp conn_loss_tstamp;
+  void*         conn_loss_timer;
+  ngtcp2_tstamp conn_ack_tstamp;
+  void*         conn_ack_timer;
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
