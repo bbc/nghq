@@ -29,6 +29,7 @@
 #include "io_buf.h"
 #include "map.h"
 #include "util.h"
+#include "stream_types.h"
 
 void nghq_transport_debug (void *user_data, const char *format, ...) {
   nghq_session *session = (nghq_session *) user_data;
@@ -227,7 +228,7 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
   if (stream == NULL) {
     if (CLIENT_REQUEST_STREAM(stream_id)) {
       /* New stream time! */
-      DEBUG("Seen start of new stream %lu\n", stream_id);
+      DEBUG("Seen start of client request stream %lu.\n", stream_id);
       stream = nghq_stream_new(stream_id);
       if (stream == NULL) {
         return NGTCP2_ERR_NOMEM;
@@ -242,25 +243,50 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
          */
         return 0;
       }
-    } else if (SERVER_PUSH_STREAM(stream_id)) {
-      /* Find the server push stream! */
-      uint64_t push_id = _get_varlen_int(data, &data_offset);
-      stream = nghq_stream_id_map_find(session->promises, push_id);
-      if (stream == NULL) {
-        ERROR("Received new server push stream %lu, but Push ID %lu has not "
-              "been previously promised, or has already been started!\n",
-              stream_id, push_id);
-        return NGTCP2_ERR_CALLBACK_FAILURE;
+    } else if (SERVER_INIT_UNI_STREAM(stream_id)) {
+      /* Conditional action based on stream type */
+      DEBUG("Seen start of server-initiated unidirectional stream %lu.\n", stream_id);
+      nghq_stream_type stream_type = get_stream_type(data, &data_offset);
+      
+      switch (stream_type)
+      {
+        case NGHQ_STREAM_TYPE_PUSH: {
+          DEBUG("Unidirectional stream is a push stream type.\n");
+          /* Find the server push stream! */
+          uint64_t push_id = _get_varlen_int(data + data_offset, &data_offset);
+          stream = nghq_stream_id_map_find(session->promises, push_id);
+          if (stream == NULL) {
+            ERROR("Received new server push stream %lu, but Push ID %lu has not "
+                  "been previously promised, or has already been started!\n",
+                  stream_id, push_id);
+            return NGTCP2_ERR_CALLBACK_FAILURE;
+          }
+          nghq_stream_id_map_remove(session->promises, push_id);
+          stream->stream_id = stream_id;
+          nghq_stream_id_map_add(session->transfers, stream_id, stream);
+          DEBUG("New server push stream %lu starts push promise %lu\n",
+                stream_id, push_id);
+          break;
+        }
+        case NGHQ_STREAM_TYPE_UNBOUND_PUSH: {
+          DEBUG("Unidirectional stream is an unbound push stream type.\n");
+          /* New stream time! */
+          stream = nghq_stream_new(stream_id);
+          if (stream == NULL) {
+            return NGTCP2_ERR_NOMEM;
+          }
+          nghq_stream_id_map_add(session->transfers, stream_id, stream);
+          break;
+        }
+        default:
+          DEBUG("Unknown unidirectional stream type, it is being ignored\n");
+          break;
       }
-      nghq_stream_id_map_remove(session->promises, push_id);
-      stream->stream_id = stream_id;
-      nghq_stream_id_map_add(session->transfers, stream_id, stream);
-      DEBUG("New server push stream %lu starts push promise %lu\n",
-            stream_id, push_id);
     }
   }
 
-  if (stream->stream_id != stream_id) {
+  if ((stream == NULL) || (stream->stream_id != stream_id)) {
+    DEBUG("Critical error reading stream, aborting.");
     abort();
   }
 

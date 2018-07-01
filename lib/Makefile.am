@@ -38,6 +38,7 @@ OBJECTS = \
 	tcp2_callbacks.c \
 	multicast.c \
 	io_buf.c \
+	stream_types.c \
 	nghq.c
 
 HDRS = \
@@ -50,6 +51,7 @@ HDRS = \
 	tcp2_callbacks.h \
 	multicast.h \
 	io_buf.h \
+	stream_types.h \
 	util.h
 
 libnghq_la_CFLAGS = -I$(top_srcdir)/include $(NGTCP2_CFLAGS) $(NGHTTP2_CFLAGS)

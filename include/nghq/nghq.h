@@ -78,6 +78,7 @@ typedef enum {
   NGHQ_TRAILERS_NOT_PROMISED = -57,
   NGHQ_REQUEST_CLOSED = -58,
   NGHQ_SETTINGS_NOT_RECOGNISED = -59,
+  NGHQ_USP_EXTENSION_DISABLED = -60,
   /* HTTP/QUIC errors */
   NGHQ_HTTP_CONNECT_ERROR = -70,
   NGHQ_HTTP_WRONG_STREAM = -71,
@@ -102,9 +103,16 @@ typedef enum {
   NGHQ_MAX
 } nghq_headers_type;
 
+typedef enum {
+  NGHQ_USP_ENABLED,
+  NGHQ_USP_DISABLED,
+  NGHQ_USP_MAX
+} nghq_unbound_push;
+
 typedef struct {
   int32_t header_table_size;
   int32_t max_header_list_size;
+  nghq_unbound_push unbound_push;
 } nghq_settings;
 
 typedef enum {
@@ -608,8 +616,8 @@ extern int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
  * Submits a PUSH_PROMISE frame. This function may only be called if session is
  * a server session.
  *
- * When running in unicast mode, @p init_request_user_id must be a pointer to
- * the request_user_data used by a currently running request. In multicast mode,
+ * When running in unicast mode, @p init_request_user_id must be a pointer to 
+ * the request_user_data used by a currently active request. In multicast mode,
  * @p init_request_user_data should be set to NULL (it will be ignored
  * internally).
  *
@@ -623,6 +631,25 @@ extern int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
  */
 extern int nghq_submit_push_promise (nghq_session *session,
                                      void * init_request_user_data,
+                                     const nghq_header **hdrs, size_t num_hdrs,
+                                     void *promised_request_user_data);
+
+/**
+ * @brief Submit an unbound push promise to a client
+ *
+ * Submits a PUSH_PROMISE frame. This function may only be called if session is
+ * a server session and the unbound server push extension is enabled.
+ *
+ * @return NGHQ_OK if the call succeeds.
+ * @return NGHQ_REQUEST_CLOSED if the init request was closed
+ * @return NGHQ_SERVER_ONLY if @p session is that of a client instance.
+ * @return NGHQ_PUSH_LIMIT_REACHED If the client's MAX_PUSH_ID limit has been
+ *    reached
+ * @return NGHQ_REQUEST_BLOCKED if the new request could not be made due to flow
+ *    control.
+ * @return NGHQ_USP_EXTENSION_DISABLED if the unbound server push extension is disabled
+ */
+extern int nghq_submit_unbound_push_promise (nghq_session *session,
                                      const nghq_header **hdrs, size_t num_hdrs,
                                      void *promised_request_user_data);
 

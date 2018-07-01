@@ -106,21 +106,18 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
 /*
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                    Optional Push Stream Header                |
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                        Header Block (*)                       |  HEADERS
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
+ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx,
                              const nghq_header** hdrs, size_t num_hdrs,
                              uint8_t** frame, size_t* frame_len) {
   size_t block_to_write;
   int hdrs_compressed;
   uint8_t* hdr_block;
-  size_t push_stream_header_len = 0;
 
   if (hdrs == NULL) {
     return NGHQ_ERROR;
@@ -131,25 +128,15 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
 
   *frame_len = _calculate_frame_size (block_to_write);
 
-  if (push_id >= 0) {
-    push_stream_header_len = _make_varlen_int(NULL, (uint64_t) push_id);
-  }
-
-  *frame = (uint8_t *) malloc((*frame_len) + push_stream_header_len);
+  *frame = (uint8_t *) malloc((*frame_len));
   if (*frame == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
 
-  if (push_id >= 0) {
-    _make_varlen_int(*frame, (uint64_t) push_id);
-  }
-
   _create_frame(NGHQ_FRAME_TYPE_HEADERS, 0, hdr_block, block_to_write,
-                *frame + push_stream_header_len, *frame_len);
+                *frame, *frame_len);
 
   free(hdr_block);
-
-  *frame_len += push_stream_header_len;
 
   return (ssize_t) hdrs_compressed;
 }

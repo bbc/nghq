@@ -49,7 +49,7 @@ typedef enum nghq_stream_state {
 } nghq_stream_state;
 
 #define CLIENT_REQUEST_STREAM(x) ((x % 4) == 0)
-#define SERVER_PUSH_STREAM(x) ((x % 4) == 3)
+#define SERVER_INIT_UNI_STREAM(x) ((x % 4) == 3)
 
 #define STREAM_FLAG_STARTED 0x01
 #define STREAM_FLAG_TRAILERS_PROMISED 0x02

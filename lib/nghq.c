@@ -39,6 +39,7 @@
 #include "tcp2_callbacks.h"
 #include "multicast.h"
 #include "io_buf.h"
+#include "stream_types.h"
 
 #include "debug.h"
 
@@ -617,6 +618,7 @@ int nghq_session_recv (nghq_session *session) {
 #define MAX_BYTES_IN_FLIGHT 1460 * 10
 
 int nghq_session_send (nghq_session *session) {
+  DEBUG("nghq_session_send called\n");
   int rv = NGHQ_NO_MORE_DATA;
   if (ngtcp2_conn_bytes_in_flight(session->ngtcp2_session) >=
       MAX_BYTES_IN_FLIGHT) {
@@ -977,6 +979,125 @@ push_promise_frame_err:
   return rv;
 }
 
+int nghq_submit_unbound_push_promise (nghq_session *session,
+                              const nghq_header **hdrs, size_t num_hdrs,
+                              void *promised_request_user_data) {
+  int rv;
+
+  if (session == NULL) {
+    return NGHQ_ERROR;
+  }
+
+  if (session->role != NGHQ_ROLE_SERVER) {
+    return NGHQ_SERVER_ONLY;
+  }
+
+  if (session->next_push_promise >= session->max_push_promise) {
+    return NGHQ_PUSH_LIMIT_REACHED;
+  }
+
+  if (session->settings.unbound_push == NGHQ_USP_DISABLED) {
+    return NGHQ_USP_EXTENSION_DISABLED;
+  }
+
+  /*
+   * Push promises must be associated with a stream ID - in multicast mode we
+   * fake this as Stream 4.
+   */
+  /*if (session->mode == NGHQ_MODE_MULTICAST) {
+    init_request_stream_id = 4;
+  } else {
+    init_request_stream_id =
+        nghq_stream_id_map_search(session->transfers, init_request_user_data);
+    if (init_request_stream_id == NGHQ_STREAM_ID_MAP_NOT_FOUND) {
+      return NGHQ_ERROR;
+    }
+  }*/
+
+  uint8_t* usp_push_promise_buf;
+  uint8_t* stream_header_buf;
+  size_t usp_push_promise_buf_len, stream_header_buf_len;
+  uint64_t stream_id;
+  
+
+  DEBUG("Creating new unbound push promise %lu with %lu headers\n",
+        session->next_push_promise, num_hdrs);
+
+  rv = create_push_promise_frame(session->hdr_ctx, session->next_push_promise,
+                                 hdrs, num_hdrs, &usp_push_promise_buf,
+                                 &usp_push_promise_buf_len);
+
+  DEBUG("Push promise frame length: %lx\n", usp_push_promise_buf_len);
+
+  if (rv < 0) {
+    goto unbound_push_promise_frame_err;
+  }
+
+  nghq_stream *promised_stream = nghq_stream_init();
+  if (promised_stream == NULL) {
+    ERROR("Couldn't allocate new promised stream");
+    rv = NGHQ_OUT_OF_MEMORY;
+    goto unbound_push_promise_frame_err;
+  }
+
+  promised_stream->push_id = session->next_push_promise++;
+  promised_stream->user_data = promised_request_user_data;
+
+  nghq_stream_id_map_add (session->promises, promised_stream->push_id,
+                          promised_stream);
+
+  nghq_stream *usp_push_stream = nghq_stream_init();
+  if (usp_push_stream == NULL) {
+    ERROR("Couldn't allocate new push stream");
+    rv = NGHQ_OUT_OF_MEMORY;
+    goto unbound_push_promise_frame_err;
+  }
+
+  ngtcp2_conn_open_uni_stream(session->ngtcp2_session, &stream_id,
+                                (void *) usp_push_stream);
+
+  usp_push_stream->stream_id = stream_id;
+  usp_push_stream->send_state = STATE_OPEN;
+
+  nghq_stream_id_map_add (session->transfers, usp_push_stream->push_id,
+                          usp_push_stream);
+
+  DEBUG("Push promise with push ID %lu will be sent on stream ID %lu\n", promised_stream->push_id,
+        stream_id);
+
+  rv = create_unbound_push_stream_header (&stream_header_buf, 
+                            &stream_header_buf_len);
+  if (rv < 0) {
+    ERROR("Couldn't create unbound push stream header\n");
+    goto unbound_push_promise_io_err;
+  }
+
+  size_t stream_buf_len = stream_header_buf_len + usp_push_promise_buf_len;
+  uint8_t* stream_buf = malloc(stream_buf_len);
+  if (stream_buf == NULL) {
+    ERROR("Couldn't allocate new push stream");
+    rv = NGHQ_INTERNAL_ERROR;
+  }
+  memcpy(stream_buf, stream_header_buf, stream_header_buf_len);
+  memcpy(stream_buf + stream_header_buf_len, usp_push_promise_buf, usp_push_promise_buf_len);
+
+  rv = nghq_io_buf_new(&usp_push_stream->send_buf, stream_buf,
+                       stream_buf_len, 1);
+  if (rv < 0) {
+    ERROR("Couldn't add unbound push promise buffer to send buffer\n");
+    goto unbound_push_promise_io_err;
+  }
+
+  return NGHQ_OK;
+
+unbound_push_promise_io_err:
+  nghq_stream_id_map_remove(session->promises, promised_stream->push_id);
+unbound_push_promise_frame_err:
+  free (usp_push_promise_buf);
+
+  return rv;
+}
+
 int nghq_set_request_user_data(nghq_session *session, void * current_user_data,
                                void * new_user_data) {
   nghq_stream *stream = nghq_stream_id_map_stream_search(session->transfers,
@@ -1007,8 +1128,9 @@ int nghq_set_session_user_data(nghq_session *session, void * current_user_data,
 
 int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
                        size_t num_hdrs, int final, void *request_user_data) {
-  uint8_t* buf;
-  size_t buf_len;
+  uint8_t* stream_header_buf;
+  uint8_t* headers_buf;
+  size_t stream_header_buf_len, headers_buf_len;
   nghq_stream* stream;
   uint64_t stream_id;
   int rv;
@@ -1016,7 +1138,7 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
   if (session == NULL) {
     return NGHQ_ERROR;
   }
-
+   
   stream_id = nghq_stream_id_map_search(session->transfers, request_user_data);
 
   if (stream_id == NGHQ_STREAM_ID_MAP_NOT_FOUND) {
@@ -1026,7 +1148,7 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
       /* Bad user data */
       return NGHQ_ERROR;
     }
-    DEBUG("Feeding %lu headers for push promise %lu\n", num_hdrs, push_id);
+    DEBUG("Feeding %lu headers for push ID %lu\n", num_hdrs, push_id);
     /* Start of a server push, so open a new unidirectional stream */
     if (session->max_open_server_pushes <=
         nghq_stream_id_map_num_pushes(session->transfers)) {
@@ -1041,17 +1163,33 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
     stream->stream_id = stream_id;
     stream->send_state = STATE_HDRS;
 
-    DEBUG("Push promise %lu will be sent on stream ID %lu\n", push_id,
+    DEBUG("Pushed response with push ID %lu will be sent on stream ID %lu\n", push_id,
           stream_id);
 
-    rv = create_headers_frame (session->hdr_ctx, (int64_t) push_id, hdrs,
-                               num_hdrs, &buf, &buf_len);
+    rv = create_push_stream_header ((int64_t) push_id, &stream_header_buf, 
+                               &stream_header_buf_len);
     if (rv < 0) {
       return rv;
     }
 
+    rv = create_headers_frame (session->hdr_ctx, hdrs,
+                               num_hdrs, &headers_buf, &headers_buf_len);
+    if (rv < 0) {
+      return rv;
+    }
+
+    size_t stream_buf_len = stream_header_buf_len + headers_buf_len;
+    uint8_t* stream_buf = malloc(stream_buf_len);
+    if (stream_buf == NULL) {
+      return NGHQ_OUT_OF_MEMORY;
+    }
+    memcpy(stream_buf, stream_header_buf, stream_header_buf_len);
+    memcpy(stream_buf + stream_header_buf_len, headers_buf, headers_buf_len);
+
     nghq_stream_id_map_add(session->transfers, stream_id, stream);
     nghq_stream_id_map_remove(session->promises, push_id);
+
+    nghq_io_buf_new(&stream->send_buf, stream_buf, stream_buf_len, final);
   } else {
     DEBUG("Feeding %lu headers on stream ID %lu\n", num_hdrs, stream_id);
     stream = nghq_stream_id_map_find(session->transfers, stream_id);
@@ -1075,15 +1213,14 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
               stream->stream_id);
         return NGHQ_REQUEST_CLOSED;
     }
-    rv = create_headers_frame (session->hdr_ctx, -1, hdrs, num_hdrs, &buf,
-                               &buf_len);
+    rv = create_headers_frame (session->hdr_ctx, hdrs, num_hdrs, &headers_buf,
+                               &headers_buf_len);
 
     if (rv < 0) {
       return rv;
     }
+    nghq_io_buf_new(&stream->send_buf, headers_buf, headers_buf_len, final);
   }
-
-  nghq_io_buf_new(&stream->send_buf, buf, buf_len, final);
 
   if (final) {
     nghq_stream_ended (session, stream);
@@ -1231,8 +1368,8 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
   stream->recv_buf->buf_len += datalen;
 
   nghq_frame_type frame_type;
-  if (SERVER_PUSH_STREAM(stream->stream_id)) {
-
+  if (SERVER_INIT_UNI_STREAM(stream->stream_id)) {
+    //DEBUG("Why was this ever here!\n");
   }
   /*
    * Size is the size of the first frame in the queue to be processed for this

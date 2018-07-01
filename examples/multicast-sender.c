@@ -230,6 +230,7 @@ static nghq_callbacks g_callbacks = {
 static nghq_settings g_settings = {
     NGHQ_SETTINGS_DEFAULT_HEADER_TABLE_SIZE,     /* header_table_size */
     NGHQ_SETTINGS_DEFAULT_MAX_HEADER_LIST_SIZE,  /* max_header_list_size */
+    NGHQ_USP_ENABLED                             /* unbound_push */
 };
 
 static nghq_transport_settings g_trans_settings = {
@@ -371,6 +372,7 @@ int main(int argc, char *argv[])
     const char *default_ifc_ip = NULL;
     int opt;
     int option_index = 0;
+    int usp_enabled = 1;
 
     mcast_ifc_list *ifcs = NULL;
 
@@ -522,10 +524,17 @@ int main(int argc, char *argv[])
     for (i = 0; i < sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]); i++) {
       printf("\t%s: %s\n", g_request_hdrs[i]->name, g_request_hdrs[i]->value);
     }
-    result = nghq_submit_push_promise (g_server_session.session, NULL,
-		     g_request_hdrs,
-                     sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
-                     &promise_request_user_data);
+    if (usp_enabled == 1) {
+        result = nghq_submit_unbound_push_promise (g_server_session.session, 
+                g_request_hdrs,
+                        sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
+                        &promise_request_user_data);
+    } else {
+        result = nghq_submit_push_promise (g_server_session.session, NULL,
+                g_request_hdrs,
+                        sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
+                        &promise_request_user_data);
+    }
 
     ev_run(EV_DEFAULT_UC_ EVRUN_ONCE);
 

@@ -82,7 +82,6 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
  * compression context will have occured.
  *
  * @param ctx The header compression context
- * @param push_id -1 if no push stream header needed, otherwise the push ID
  * @param hdrs An array of name-value pair headers to be compressed
  * @param num_hdrs The number of entries in @p hdrs.
  * @param frame The buffer to return the packaged frame in
@@ -94,7 +93,7 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
  *    allocated
  * @return NGHQ_HDR_COMPRESS_FAILURE if the headers couldn't be compressed.
  */
-ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
+ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx,
                              const nghq_header** hdrs, size_t num_hdrs,
                              uint8_t** frame, size_t* frame_len);
 
