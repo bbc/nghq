@@ -48,30 +48,91 @@
 #define DEFAULT_MCAST_PORT    2000
 #define DEFAULT_SRC_ADDR_V4   "127.0.0.1"
 #define DEFAULT_CONNECTION_ID 1
+#define DEFAULT_FAKE_REORDER  0 /* don't deliberately reorder packets */
+#define DEFAULT_DROP_PACKET   0 /* don't deliberately drop packets */
+
+#define OPT_ARG_DEFAULT_FAKE_REORDER   3 /* reorder every 3rd packet */
+#define OPT_ARG_DEFAULT_DROP_PACKET    7 /* drop every 7th packet */
 
 typedef enum ReceivingHeaders {
-    HEADERS_REQUEST = 0,
-    HEADERS_RESPONSE
+  HEADERS_REQUEST = 0,
+  HEADERS_RESPONSE
 } ReceivingHeaders;
 
 typedef struct push_request {
-    ReceivingHeaders headers_incoming;
-    bool text_body;
+  ReceivingHeaders headers_incoming;
+  bool text_body;
 } push_request;
 
 typedef struct session_data {
-    nghq_session *session;
-    ev_io socket_readable;
-    ev_idle recv_idle;
-    int socket;
+  nghq_session *session;
+  ev_io socket_readable;
+  ev_idle recv_idle;
+  int socket;
+  int do_fake_reorder;
+  int do_drop_packet;
 } session_data;
 
 static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
                         void *session_user_data)
 {
   session_data *sdata = (session_data*)session_user_data;
+  static int fake_reorder = -1;
+  static int drop_packet = -1;
   ssize_t result;
-  result = recv(sdata->socket, data, len, 0);
+  static uint8_t *tmp_data = NULL;
+  static ssize_t tmp_size = 0;
+
+  if (fake_reorder < 0) fake_reorder = sdata->do_fake_reorder;
+  if (drop_packet < 0) drop_packet = sdata->do_drop_packet;
+
+  if (tmp_data) {
+    result = (tmp_size < len)?tmp_size:len;
+    memcpy (data, tmp_data, result);
+    if (result == tmp_size) {
+      free (tmp_data);
+      tmp_data = NULL;
+    } else {
+      memmove(tmp_data, tmp_data + result, tmp_size - result);
+    }
+    tmp_size -= result;
+  } else {
+    if (sdata->do_drop_packet) {
+      drop_packet--;
+      if (drop_packet<=0) {
+        uint8_t buf[len];
+        drop_packet = sdata->do_drop_packet;
+        result = recv(sdata->socket, buf, len, 0);
+        if (result <= 0) {
+          drop_packet = 1;
+          if (result < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
+            return NGHQ_ERROR;
+          }
+          return 0;
+        }
+      }
+    }
+    if (sdata->do_fake_reorder) {
+      fake_reorder--;
+      if (fake_reorder<=0) {
+        fake_reorder = sdata->do_fake_reorder;
+        tmp_data = (uint8_t*)malloc(len);
+        result = recv(sdata->socket, tmp_data, len, 0);
+        if (result <= 0) {
+          free (tmp_data);
+          tmp_data = NULL;
+          fake_reorder = 1;
+          if (result < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
+            return NGHQ_ERROR;
+          }
+          return 0;
+        }
+        tmp_size = result;
+      }
+    }
+    result = recv(sdata->socket, data, len, 0);
+  }
+
   if (result < 0) {
     if (errno != EWOULDBLOCK && errno != EAGAIN) {
       return NGHQ_ERROR;
@@ -142,7 +203,7 @@ static int on_begin_promise_cb (nghq_session *session, void* session_user_data,
 {
     session_data *data = (session_data*) session_user_data;
     push_request *new_request = calloc(1, sizeof(push_request));
-    nghq_set_request_user_data(session, request_user_data, new_request);
+    nghq_set_request_user_data(session, promise_user_data, new_request);
     return NGHQ_OK;
 }
 
@@ -175,8 +236,8 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
 {
     push_request *req = (push_request*)request_user_data;
 
-    printf("Received %zu bytes of body data.\n", len);
-    if (req->text_body) {    
+    printf("Received %zu bytes of body data (offset=%zu).\n", len, off);
+    if (req->text_body) {
         printf("Body:\n%s\n", data);
     } else {
         printf("Body is binary, not displaying.\n");
@@ -358,11 +419,13 @@ int main(int argc, char *argv[])
     struct sockaddr_storage src_addr;
     struct group_source_req gsr;
 
-    static const char short_opts[] = "hi:p:";
+    static const char short_opts[] = "d::hi:p:r::";
     static const struct option long_opts[] = {
         {"help", 0, NULL, 'h'},
         {"connection-id", 1, NULL, 'i'},
         {"port", 1, NULL, 'p'},
+        {"reorder-every", 2, NULL, 'r'},
+        {"drop-every", 2, NULL, 'd'},
         {NULL, 0, NULL, 0}
     };
 
@@ -377,6 +440,9 @@ int main(int argc, char *argv[])
     const char *default_src_ip = NULL;
     int opt;
     int option_index = 0;
+
+    this_session.do_fake_reorder = DEFAULT_FAKE_REORDER;
+    this_session.do_drop_packet = DEFAULT_DROP_PACKET;
 
     mcast_ifc_list *ifcs = NULL;
 
@@ -397,6 +463,16 @@ int main(int argc, char *argv[])
 
     while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
         switch (opt) {
+        case 'd':
+            if (optarg) {
+                this_session.do_drop_packet = atoi(optarg);
+                if (this_session.do_drop_packet<0) {
+                    this_session.do_drop_packet = 0;
+                }
+            } else {
+                this_session.do_drop_packet = OPT_ARG_DEFAULT_DROP_PACKET;
+            }
+            break;
         case 'h':
             help = 1;
             usage = 1;
@@ -406,6 +482,16 @@ int main(int argc, char *argv[])
             break;
         case 'p':
             recv_port = atoi(optarg);
+            break;
+        case 'r':
+            if (optarg) {
+                this_session.do_fake_reorder = atoi(optarg);
+                if (this_session.do_fake_reorder<0) {
+                    this_session.do_fake_reorder = 0;
+                }
+            } else {
+                this_session.do_fake_reorder = OPT_ARG_DEFAULT_FAKE_REORDER;
+            }
             break;
         default:
             usage = 1;
@@ -422,15 +508,20 @@ int main(int argc, char *argv[])
 
     if (usage) {
       fprintf(err_out?stderr:stdout,
-"Usage: %s [-h] [-p <port>] [-i <id>] [<mcast-grp> [<src-addr>]]\n",
+"Usage: %s [-h] [-p <port>] [-i <id>] [-d[<n>]] [-r[<n>]]\n"
+"                         [<mcast-grp> [<src-addr>]]\n",
               argv[0]);
     }
     if (help) {
       printf("\n"
 "Options:\n"
-"  --help          -h        Display this help text.\n"
-"  --port          -p <port> UDP port number to receive on [default: " STR(DEFAULT_MCAST_PORT) "].\n"
-"  --connection-id -i <id>   The connection ID to expect [default: " STR(DEFAULT_CONNECTION_ID) "].\n"
+"  --help          -h         Display this help text.\n"
+"  --port          -p <port>  UDP port number to receive on [default: " STR(DEFAULT_MCAST_PORT) "].\n"
+"  --connection-id -i <id>    The connection ID to expect [default: " STR(DEFAULT_CONNECTION_ID) "].\n"
+"  --drop-every    -d [<n>]   Drop every nth packet (n=" STR(OPT_ARG_DEFAULT_DROP_PACKET) " if not given)\n"
+"                             [default: no dropped packets].\n"
+"  --reorder-every -r [<n>]   Reorder every nth packet (n=" STR(OPT_ARG_DEFAULT_FAKE_REORDER) " if not given)\n"
+"                             [default: no reordering].\n"
 "\n"
 "Arguments:\n"
 "  <mcast-grp> The multicast group to receive on [default: %s].\n"
