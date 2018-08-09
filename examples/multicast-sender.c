@@ -65,7 +65,8 @@
 #define MAX_PACKET_LEN        1479
 /* MAX_PAYLOAD_LEN - maximum block size used in stream data */
 /*** ngtcp2 bug means that payload must fit in a packet. ***/
-#define MAX_PAYLOAD_LEN              (MAX_PACKET_LEN-29)
+//#define MAX_PAYLOAD_LEN              (MAX_PACKET_LEN-29)
+#define MAX_PAYLOAD_LEN       16384
 
 #define _STR(a) #a
 #define STR(a) _STR(a)
@@ -480,7 +481,7 @@ static void _send_file_or_dir(const char *file_or_dir,
         for (struct dirent *ent = readdir(dir); ent != NULL;
              ent = readdir(dir)) {
             if (ent->d_name[0] == '.' &&
-                (ent->d_name[1] == '\0' || 
+                (ent->d_name[1] == '\0' ||
                  (ent->d_name[1] == '.' && ent->d_name[2] == '\0'))) continue;
             _insert_path_list(&list, ent->d_name);
         }
