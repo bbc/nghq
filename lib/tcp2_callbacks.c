@@ -29,6 +29,7 @@
 #include "io_buf.h"
 #include "map.h"
 #include "util.h"
+#include "multicast.h"
 
 void nghq_transport_debug (void *user_data, const char *format, ...) {
   nghq_session *session = (nghq_session *) user_data;
@@ -73,6 +74,9 @@ ssize_t nghq_transport_send_client_handshake (ngtcp2_conn *conn, uint32_t flags,
         flags, (void *) pdest, user_data);
   nghq_session *session = (nghq_session *) user_data;
 
+  *pdest = malloc (session->send_buf->buf_len);
+  if (!*pdest) return NGTCP2_ERR_NOMEM;
+
   ngtcp2_conn_handshake_completed(conn);
 
   return session->send_buf->buf_len;
@@ -82,13 +86,17 @@ int nghq_transport_recv_client_initial (ngtcp2_conn *conn, uint64_t conn_id,
                                         void *user_data) {
   DEBUG("nghq_transport_recv_client_initial(%p, %lu, %p)\n", (void *) conn,
         conn_id, user_data);
-  int rv = ngtcp2_conn_set_handshake_tx_keys(conn, NULL, 0, NULL, 0);
+  int rv = ngtcp2_conn_set_handshake_tx_keys(conn,
+                                     quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC,
+                                     quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
   if (rv != 0) {
     ERROR("Couldn't set ngtcp2_conn_set_handshake_tx_keys: %s\n",
           ngtcp2_strerror(rv));
   }
 
-  rv = ngtcp2_conn_set_handshake_rx_keys(conn, NULL, 0, NULL, 0);
+  rv = ngtcp2_conn_set_handshake_rx_keys(conn,
+                                     quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC,
+                                     quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
 
   if (rv != 0) {
     ERROR("Couldn't set ngtcp2_conn_set_handshake_rx_keys: %s\n",
@@ -214,15 +222,14 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
   int rv;
 
   if (stream == NULL) {
+    /* New stream time! */
+    DEBUG("Seen start of new stream %lu\n", stream_id);
+    stream = nghq_stream_new(stream_id);
+    if (stream == NULL) {
+      return NGTCP2_ERR_NOMEM;
+    }
+    nghq_stream_id_map_add(session->transfers, stream_id, stream);
     if (CLIENT_REQUEST_STREAM(stream_id)) {
-      /* New stream time! */
-      DEBUG("Seen start of new stream %lu\n", stream_id);
-      stream = nghq_stream_new(stream_id);
-      if (stream == NULL) {
-        return NGTCP2_ERR_NOMEM;
-      }
-      nghq_stream_id_map_add(session->transfers, stream_id, stream);
-
       if ((stream_id == 4) && (session->mode == NGHQ_MODE_MULTICAST)) {
         /*
          * Don't feed the magic packet into nghq_recv_stream_data as it will
@@ -231,32 +238,44 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
          */
         return 0;
       }
-    } else if (SERVER_PUSH_STREAM(stream_id)) {
-      /* Find the server push stream! */
-      uint64_t push_id = _get_varlen_int(data, &data_offset);
-      stream = nghq_stream_id_map_find(session->promises, push_id);
-      if (stream == NULL) {
-        ERROR("Received new server push stream %lu, but Push ID %lu has not "
-              "been previously promised, or has already been started!\n",
-              stream_id, push_id);
-        return NGTCP2_ERR_CALLBACK_FAILURE;
-      }
-      nghq_stream_id_map_remove(session->promises, push_id);
-      stream->stream_id = stream_id;
-      nghq_stream_id_map_add(session->transfers, stream_id, stream);
-      DEBUG("New server push stream %lu starts push promise %lu\n",
-            stream_id, push_id);
     }
+  }
+
+  if (SERVER_PUSH_STREAM(stream_id) && stream_offset==0) {
+    /* Find the server push stream! */
+    nghq_stream* push_stream;
+    uint64_t push_id = _get_varlen_int(data, &data_offset, datalen);
+    if (data_offset > datalen) {
+      ERROR("Not enough data for push ID in stream data for stream %lu\n",
+            stream_id);
+      return NGHQ_ERROR;
+    }
+    push_stream = nghq_stream_id_map_find(session->promises, push_id);
+    if (push_stream == NULL) {
+      ERROR("Received new server push stream %lu, but Push ID %lu has not "
+            "been previously promised, or has already been started!\n",
+            stream_id, push_id);
+      return NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+
+    /* copy over push information to stream */
+    stream->push_id = push_id;
+    stream->user_data = push_stream->user_data;
+
+    nghq_stream_id_map_remove(session->promises, push_id);
+
+    DEBUG("Server push stream %lu starts push promise %lu\n",
+          stream_id, push_id);
   }
 
   if (stream->stream_id != stream_id) {
     abort();
   }
 
-  rv = nghq_recv_stream_data(session, stream, data + data_offset,
-                           datalen - data_offset, stream_offset + data_offset);
+  rv = nghq_recv_stream_data(session, stream, data, datalen, stream_offset);
+
   if (rv == NGHQ_NOT_INTERESTED) {
-    /* Client has indicated it doesn't care about this stream anymore, so stop */
+    /* Client has indicated it doesn't care about this stream anymore, stop */
     nghq_stream_cancel (session, stream, 0);
   }
   return rv;

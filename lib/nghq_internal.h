@@ -28,6 +28,8 @@
 
 #include "nghq/nghq.h"
 
+#include "frame_types.h"
+
 #include <ngtcp2/ngtcp2.h>
 
 /* forward declarations for unreferenced pointer types */
@@ -54,6 +56,31 @@ typedef enum nghq_stream_state {
 #define STREAM_FLAG_STARTED 0x01
 #define STREAM_FLAG_TRAILERS_PROMISED 0x02
 
+typedef struct nghq_gap {
+  uint64_t begin;
+  uint64_t end;
+  struct nghq_gap *next;
+} nghq_gap;
+
+typedef struct nghq_stream_frame {
+  nghq_frame_type           frame_type;
+  nghq_gap*                 gaps;
+
+  // Single buffer to cover whole frame. Buffer memory (data->buf) only present
+  // when frame_type != NGHQ_FRAME_TYPE_DATA.
+  nghq_io_buf*              data;
+
+  // Value to subtract from stream offset to get the body data offset for the
+  // first byte of this data frame (frame_type == NGHQ_FRAME_TYPE_DATA).
+  size_t                    data_offset_adjust;
+
+  // Stream offset of first byte after the frame header
+  // (frame_type == NGHQ_FRAME_TYPE_DATA).
+  size_t                    end_header_offset;
+
+  struct nghq_stream_frame* next;
+} nghq_stream_frame;
+
 typedef struct {
   uint64_t      push_id;
   uint64_t      stream_id;
@@ -61,14 +88,15 @@ typedef struct {
   nghq_io_buf*  recv_buf;
   size_t        buf_idx;
   uint64_t      tx_offset;  /*Offset where all data before is acked by remote peer*/
-  size_t        headers_off; /* Size of HEADERS blocks before BODY */
-  size_t        body_off; /* Combined size of BODY headers on stream so far */
+  size_t        data_frames_total; /* total size of BODY data seen so far */
   void *        user_data;
   uint8_t       priority;
   nghq_stream_state recv_state;
   nghq_stream_state send_state;
   nghq_error    status;
   uint8_t       flags;
+  size_t        next_recv_offset;
+  nghq_stream_frame* active_frames;
 } nghq_stream;
 
 #define STREAM_STARTED(x) (x & STREAM_FLAG_STARTED)

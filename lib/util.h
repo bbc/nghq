@@ -73,7 +73,7 @@ uint64_t get_timestamp_now();
 #define _VARLEN_INT_6_BIT 0x00
 
 size_t _make_varlen_int (uint8_t* buf, uint64_t n);
-uint64_t _get_varlen_int (const uint8_t* buf, size_t* bytes);
+uint64_t _get_varlen_int (const uint8_t* buf, size_t* bytes, size_t max_bytes);
 
 uint64_t rand64();
 
