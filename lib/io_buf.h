@@ -31,24 +31,27 @@
 
 /* A linked list of buffered frames that need sending/receiving. */
 typedef struct nghq_io_buf {
-  uint8_t *buf;
-  size_t  buf_len;
-  uint8_t *send_pos;
-  size_t  remaining;
-  int     complete;
+  uint8_t *buf;      /**< The buffer */
+  size_t  buf_len;   /**< The length of the buffer */
+  uint8_t *send_pos; /**< The position within the buffer for the next process */
+  size_t  remaining; /**< The data remaining to process from this buffer */
+  int     complete;  /**< Non-zero if the stream finishes with this buffer */
+  size_t  offset;    /**< Offset within the stream for this buffer */
 
-  struct nghq_io_buf *next_buf;
+  struct nghq_io_buf *next_buf; /**< The next buffer after this one */
 } nghq_io_buf;
 
 /**
  * @brief Constructs a new IO Buffer object and pushes it to the end of the list
  *
  * @param list The IO buffer list to add @p buf to
- * @param buf The buffer to add to the list
+ * @param buf The buffer to add to the list [takes ownership].
  * @param buflen The length of @p buf
  * @param fin Set the fin bit on the QUIC packet when this is sent
+ * @param offset The stream offset of this buffer
  */
-int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen, int fin);
+int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen, int fin,
+                     size_t offset);
 
 /**
  * @brief Pushes an IO Buffer object to the end of the list
