@@ -44,3 +44,8 @@ libtool
 *.sublime-project
 *.sublime-workspace
 *~
+examples/multicast-receiver
+examples/multicast-sender
+lib/libnghq.pc
+
+ngtcp2
