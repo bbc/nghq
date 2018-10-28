@@ -1,0 +1,7 @@
+[submodule "ngtcp2"]
+	path = ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2
+	branch = nghq-0.0.1-support
+[submodule "openssl"]
+	path = openssl
+	url = https://github.com/openssl/openssl
