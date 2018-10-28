@@ -3,7 +3,9 @@
 	url = https://github.com/ngtcp2/ngtcp2
 	branch = nghq-0.0.1-support
 	ignore = untracked
+	shallow = true
 [submodule "openssl"]
 	path = openssl
 	url = https://github.com/openssl/openssl
 	ignore = untracked
+	shallow = true
