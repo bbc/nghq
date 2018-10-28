@@ -48,4 +48,6 @@ examples/multicast-receiver
 examples/multicast-sender
 lib/libnghq.pc
 
-ngtcp2
+ngtcp2/
+openssl/
+build/
