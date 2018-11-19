@@ -1,0 +1,9 @@
+[submodule "ngtcp2"]
+	path = ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2.git
+	branch = nghq-0.0.1-support
+	shallow = true
+[submodule "openssl"]
+	path = openssl
+	url = https://github.com/openssl/openssl.git
+	shallow = true

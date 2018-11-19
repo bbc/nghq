@@ -34,11 +34,11 @@ client/server application and **nghq** can be found
 
 **NOTE: In its current form, nghq implements only the parts of the HTTP/QUIC specification required by [draft-pardue-quic-http-mcast-02](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02)**.
 
-In particular, it only supports [draft-ietf-quic-http-09](https://tools.ietf.org/html/draft-ietf-quic-http-09) 
+In particular, it only supports [draft-ietf-quic-http-09](https://tools.ietf.org/html/draft-ietf-quic-http-09)
 as draft-09 is the last to still use [HPACK](https://tools.ietf.org/html/rfc7541)
 for header compression. Later versions of quic-http mandate the use of
 [QPACK](https://github.com/quicwg/base-drafts/blob/master/draft-ietf-quic-qpack.md).
-However, there is currently no readily available QPACK encoder and decoder. 
+However, there is currently no readily available QPACK encoder and decoder.
 Until such time as this issue is resolved, this library relies on the legacy
 HPACK encoder and decoder from
 [nghttp2](https://nghttp2.org/documentation/tutorial-hpack.html).
@@ -47,8 +47,14 @@ HPACK encoder and decoder from
 
 **nghq** is currently designed to be built against a version of ngtcp2 that has
 quic-transport-draft-09 support. The branch on ngtcp2 is called [nghq-0.0.1-support](https://github.com/ngtcp2/ngtcp2/tree/nghq-0.0.1-support).
+The particular version of **ngtcp2** is added as submodule to this project. As **ngtcp2** requires support of [openssl](https://github.com/openssl/openssl/),
+that's added as submodule as well. To get those submodules after cloning the repository type the following:
 
-    $ git clone --depth 1 -b nghq-0.0.1-support https://github.com/ngtcp2/ngtcp2.git
+    $ git submodule update --init
+
+You can also clone this repository along with all submodules by using the following command:
+
+    $ git clone --recursive https://github.com/bbc/nghq.git
 
 In addition, the library also requires [nghttp2](https://nghttp2.org) version
 v1.11.0 or above.
@@ -102,4 +108,5 @@ additional contributions by [David Waring](https://github.com/davidjwbbc).
 ## Copyright
 
 Copyright (c) 2018 British Broadcasting Corporation
+
 
