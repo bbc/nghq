@@ -334,7 +334,7 @@ extern int nghq_feed_transport_params (nghq_session *session,
  * to the connected client with a TLS Alert if this function fails. You *must
  * not* free any values returned in @p proto.
  *
- * @pstsm session A running NGHQ session
+ * @param session A running NGHQ session
  * @param buf The ALPN string
  * @param buflen The length of the ALPN string
  * @param proto The chosen HTTP/QUIC protocol version to be used
@@ -346,6 +346,27 @@ extern int nghq_feed_transport_params (nghq_session *session,
 extern ssize_t nghq_select_alpn (nghq_session *session,
                                  const uint8_t *buf, size_t buflen,
                                  const uint8_t **proto);
+
+/**
+ * @brief Get the ALPN string supported by this library
+ *
+ * During the TLS handshake the client needs to provide the server with an ALPN
+ * string containing the protocol versions it can support. This function
+ * returns an appropriate ALPN string describing the protocols supported by
+ * this library at runtime. Note this is dependant upon which version of the
+ * ngtcp2 library that has been (dynamically) linked.
+ *
+ * This function may return NGHQ_HTTP_ALPN_FAILED if the protocol version
+ * supported by the linked ngtcp2 library is not understood.
+ *
+ * @param alpn A pointer to the ALPN string to use or NULL to test the library
+ *             compatibility.
+ *
+ * @return The size of the ALPN string in @p alpn
+ * @return NGHQ_HTTP_ALPN_FAILED if the linked ngtcp2 library version is not
+ *         compatible.
+ */
+extern ssize_t nghq_get_alpn (const uint8_t **alpn);
 
 /*
  * Session Callbacks

@@ -39,6 +39,7 @@
 #include "tcp2_callbacks.h"
 #include "multicast.h"
 #include "io_buf.h"
+#include "lang.h"
 
 #include "debug.h"
 
@@ -2242,5 +2243,72 @@ nghq_stream *nghq_req_stream_new(nghq_session* session) {
 
   return stream;
 }
+
+PACKED_STRUCT(alpn_name)
+struct alpn_name {
+    uint8_t len;
+    uint8_t name[];
+};
+END_PACKED_STRUCT(alpn_name)
+
+static const struct alpn_name * const _draft9_alpn = (const struct alpn_name*)"\x06hqm-03";
+static const struct alpn_name *_draft9_alpns[] = {_draft9_alpn, NULL};
+
+static const struct alpn_name **_get_alpn_protocols()
+{
+#if NGTCP2_PROTO_VER_MAX == NGTCP2_PROTO_VER_D9
+    return _draft9_alpns;
+#else
+    return NULL;
+#endif
+}
+
+ssize_t nghq_select_alpn (nghq_session *session, const uint8_t *buf,
+                          size_t buflen, const uint8_t **proto)
+{
+    const struct alpn_name **alpn_protocols = _get_alpn_protocols ();
+
+    if (session == NULL || session->role != NGHQ_ROLE_SERVER)
+        return (ssize_t) NGHQ_SERVER_ONLY;
+    if (alpn_protocols == NULL) return (ssize_t) NGHQ_HTTP_ALPN_FAILED;
+
+    for (size_t idx = 0; idx < buflen; idx += buf[idx]+1) {
+        for (size_t i = 0; alpn_protocols[i] != NULL; i++) {
+            if (buf[idx] != alpn_protocols[i]->len) continue;
+            if (memcmp (buf+idx+1, alpn_protocols[i]->name,
+                        alpn_protocols[i]->len) != 0)
+                continue;
+            if (proto != NULL) *proto = buf+idx+1;
+            return (ssize_t) (alpn_protocols[i]->len);
+        }
+    }
+    return (ssize_t) NGHQ_HTTP_ALPN_FAILED;
+}
+
+ssize_t nghq_get_alpn (const uint8_t **alpn)
+{
+    const struct alpn_name **alpn_protocols = _get_alpn_protocols ();
+    static size_t total_len = 0;
+    static uint8_t *alpns = NULL;
+
+    if (alpn_protocols == NULL) return (ssize_t) NGHQ_HTTP_ALPN_FAILED;
+
+    if (total_len == 0U || alpns == NULL) {
+        total_len = 0U;
+        for (size_t i = 0; alpn_protocols[i] != NULL; i++) {
+            total_len += alpn_protocols[i]->len + 1;
+        }
+        alpns = (uint8_t*) realloc (alpns, total_len);
+        size_t idx = 0;
+        for (size_t i = 0; alpn_protocols[i] != NULL; i++) {
+            memcpy (alpns+idx, alpn_protocols[i], alpn_protocols[i]->len + 1);
+            idx += alpn_protocols[i]->len + 1;
+        }
+    }
+
+    if (alpn != NULL) *alpn = alpns;
+    return (ssize_t)total_len;
+}
+
 
 // vim:ts=8:sts=2:sw=2:expandtab:

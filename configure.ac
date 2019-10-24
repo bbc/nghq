@@ -56,6 +56,8 @@ AC_CONFIG_MACRO_DIR([m4])
 
 #AC_CONFIG_HEADERS([config.h])
 
+AX_PACKED_STRUCT
+
 # Check for required nghttp2 for HPACK
 PKG_CHECK_MODULES([NGHTTP2], [libnghttp2])
 
