@@ -255,8 +255,8 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
                                       (transport->max_stream_data):(256 * 1024);
   tcp2_settings.max_data = (transport->max_data)?(transport->max_data):
                                (1 * 1024 * 1024);
-  tcp2_settings.max_stream_id_bidi = session->max_open_requests;
-  tcp2_settings.max_stream_id_uni = session->max_open_server_pushes;
+  tcp2_settings.max_stream_id_bidi = UINT32_MAX;
+  tcp2_settings.max_stream_id_uni = UINT32_MAX;
   tcp2_settings.idle_timeout = transport->idle_timeout;
   tcp2_settings.omit_connection_id = 0;
   tcp2_settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
