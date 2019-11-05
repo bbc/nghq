@@ -1430,14 +1430,6 @@ int _nghq_stream_headers_frame (nghq_session* session, nghq_stream* stream,
   size_t to_process;
   switch (stream->recv_state) {
     case STATE_OPEN:
-      if (session->callbacks.on_begin_headers_callback) {
-        int rv = session->callbacks.on_begin_headers_callback(session,
-                                                   session->session_user_data,
-                                                   stream->user_data);
-        if (rv != NGHQ_OK) {
-          return rv;
-        }
-      }
       stream->recv_state = STATE_HDRS;
       break;
     case STATE_HDRS:
