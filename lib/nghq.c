@@ -28,6 +28,7 @@
 #include <assert.h>
 #include <time.h>
 #include <errno.h>
+#include <stdbool.h>
 
 #include "nghq/nghq.h"
 #include "nghq_internal.h"
@@ -1534,6 +1535,22 @@ static int _nghq_stream_settings_frame (nghq_session* session,
   return NGHQ_OK;
 }
 
+static bool _hdr_field_is_value(nghq_header** hdrs, size_t num_hdrs,
+                                       const char *field, const char *value)
+{
+  size_t field_len = strlen(field);
+  size_t value_len = strlen(value);
+  for (size_t i = 0; i < num_hdrs; i++) {
+    if (hdrs[i]->name_len == field_len &&
+        hdrs[i]->value_len == value_len &&
+        memcmp(hdrs[i]->name, field, field_len) == 0 &&
+        memcmp(hdrs[i]->value, value, value_len) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static int _nghq_stream_push_promise_frame (nghq_session* session,
                                             nghq_stream* stream,
                                             nghq_stream_frame *frame) {
@@ -1561,6 +1578,15 @@ static int _nghq_stream_push_promise_frame (nghq_session* session,
 
   if (hdrs != NULL) {
     int rv;
+
+    if (session->role == NGHQ_ROLE_CLIENT &&
+        session->mode == NGHQ_MODE_MULTICAST &&
+        _hdr_field_is_value(hdrs, num_hdrs, ":path", "goaway") &&
+        _hdr_field_is_value(hdrs, num_hdrs, "connection", "close")) {
+      /* closing the session */
+      nghq_session_close(session, NGHQ_OK);
+      return NGHQ_OK;
+    }
 
     if (session->callbacks.on_begin_promise_callback) {
       rv = session->callbacks.on_begin_promise_callback(session,
