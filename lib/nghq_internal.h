@@ -110,7 +110,7 @@ struct nghq_session {
 
   uint64_t        connection_id;
 
-  /* The highest seen stream IDs for both client requests and server pushes */
+  /* The highest stream IDs for both client requests and server pushes */
   uint64_t        highest_bidi_stream_id;
   uint64_t        highest_uni_stream_id;
 
@@ -157,7 +157,8 @@ struct nghq_session {
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
-                           const uint8_t* data, size_t datalen, size_t off);
+                           const uint8_t* data, size_t datalen, size_t off,
+                           uint8_t end_of_stream);
 
 int nghq_deliver_headers (nghq_session* session, uint8_t flags,
                           nghq_header **hdrs, size_t num_hdrs,

@@ -153,8 +153,8 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
   session->connection_id = transport->init_conn_id;
   session->mode = transport->mode;
   session->handshake_complete = 0;
-  session->max_open_requests = transport->max_open_requests * 4;
-  session->max_open_server_pushes = (transport->max_open_server_pushes * 4) + 3;
+  session->max_open_requests = transport->max_open_requests;
+  session->max_open_server_pushes = transport->max_open_server_pushes;
   session->highest_bidi_stream_id = 0;
   session->highest_uni_stream_id = 0;
   session->next_push_promise = 0;
@@ -200,8 +200,8 @@ static int _nghq_start_session(nghq_session *session,
     return NGHQ_OK;
   }
   DEBUG("Starting a new unicast session\n");
-  session->highest_bidi_stream_id = t->max_open_requests * 4;
-  session->highest_uni_stream_id = (t->max_open_server_pushes * 4) + 3;
+  session->highest_bidi_stream_id = NGHQ_MULTICAST_MAX_UNI_STREAM_ID;
+  session->highest_uni_stream_id = NGHQ_MULTICAST_MAX_UNI_STREAM_ID;
   session->max_push_promise = 0;
 
   return NGHQ_OK;
@@ -255,8 +255,8 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
                                       (transport->max_stream_data):(256 * 1024);
   tcp2_settings.max_data = (transport->max_data)?(transport->max_data):
                                (1 * 1024 * 1024);
-  tcp2_settings.max_stream_id_bidi = UINT32_MAX;
-  tcp2_settings.max_stream_id_uni = UINT32_MAX;
+  tcp2_settings.max_stream_id_bidi = session->highest_bidi_stream_id;
+  tcp2_settings.max_stream_id_uni = session->highest_uni_stream_id;
   tcp2_settings.idle_timeout = transport->idle_timeout;
   tcp2_settings.omit_connection_id = 0;
   tcp2_settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
@@ -395,8 +395,8 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
                                       (transport->max_stream_data):(256 * 1024);
   tcp2_settings.max_data = (transport->max_data)?(transport->max_data):
                                (1 * 1024 * 1024);
-  tcp2_settings.max_stream_id_bidi = session->max_open_requests;
-  tcp2_settings.max_stream_id_uni = session->max_open_server_pushes;
+  tcp2_settings.max_stream_id_bidi = session->highest_bidi_stream_id;
+  tcp2_settings.max_stream_id_uni = session->highest_uni_stream_id;
   tcp2_settings.idle_timeout = transport->idle_timeout;
   tcp2_settings.omit_connection_id = 0;
   tcp2_settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
@@ -580,13 +580,16 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
     return NGHQ_SESSION_CLOSED;
   }
 
-  /* Close any running streams - iterate from first non-0 stream */
-  it = nghq_stream_id_map_find(session->transfers, 0);
-  it = nghq_stream_id_map_iterator(session->transfers, it);
+  /* Close any running streams - iterate from first stream after 4 */
+  it = nghq_stream_id_map_find(session->transfers, 4);
+  for (it = nghq_stream_id_map_iterator(session->transfers, it); it;
+       it = nghq_stream_id_map_iterator(session->transfers, it)) {
+    nghq_stream_close(session, it, QUIC_ERR_HTTP_REQUEST_CANCELLED);
+  }
   if (session->mode == NGHQ_MODE_MULTICAST) {
-    if (session->role == NGHQ_ROLE_SERVER) {
-      nghq_stream* stream4 = nghq_stream_id_map_find (session->transfers, 4);
-      if (stream4 != NULL) {
+    nghq_stream* stream4 = nghq_stream_id_map_find (session->transfers, 4);
+    if (stream4 != NULL) {
+      if (session->role == NGHQ_ROLE_SERVER) {
         /* https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02#section-5.5 */
 #define MAKE_HEADER(key, field, value) \
         static const char key##_field[] = field; \
@@ -610,6 +613,9 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
                                  (void *) stream4);
         nghq_feed_headers (session, resp, sizeof(resp)/sizeof(resp[0]), 1,
                            (void *) stream4);
+      } else {
+        /* multicast client also needs to close stream 4 */
+        nghq_stream_close(session, stream4, QUIC_ERR_HTTP_REQUEST_CANCELLED);
       }
     }
   } else if (session->mode == NGHQ_MODE_UNICAST) {
@@ -794,6 +800,7 @@ int nghq_session_send (nghq_session *session) {
       }
       memcpy (buffer + buf_len, next_buf->send_pos, next_buf->remaining);
       buf_len += next_buf->remaining;
+      last_data |= (uint8_t) next_buf->complete;
       free_buffer = 1;
       next_buf = next_buf->next_buf;
     }
@@ -822,7 +829,6 @@ int nghq_session_send (nghq_session *session) {
     } else if (pkt_len > 0) {
       /* delete any whole buffers sent */
       while (it->send_buf && sent >= it->send_buf->remaining) {
-        last_data = (uint8_t) it->send_buf->complete;
         DEBUG("Sent buffer of size %lu on stream %lu\n",
               it->send_buf->buf_len, it->stream_id);
         sent -= it->send_buf->remaining;
@@ -839,6 +845,7 @@ int nghq_session_send (nghq_session *session) {
         it->send_buf->remaining -= sent;
         DEBUG("%lu bytes remaining of buffer to send on stream %lu\n",
               it->send_buf->remaining, it->stream_id);
+        it->send_buf->complete = last_data;
         last_data = 0;
       }
     } else {
@@ -848,6 +855,7 @@ int nghq_session_send (nghq_session *session) {
     }
 
     new_pkt->buf_len = pkt_len;
+    new_pkt->complete = last_data;
 
     nghq_io_buf_push(&session->send_buf, new_pkt);
 
@@ -997,6 +1005,13 @@ int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
 
   if (session->role != NGHQ_ROLE_CLIENT) {
     return NGHQ_CLIENT_ONLY;
+  }
+
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    /* For multicast just make stream 4 use the request_user_data passed in */
+    new_stream = nghq_stream_id_map_find (session->transfers, 4);
+    if (new_stream) new_stream->user_data = request_user_data;
+    return NGHQ_OK;
   }
 
   if (session->max_open_requests <=
@@ -1241,7 +1256,7 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
 
   stream_id = nghq_stream_id_map_search(session->transfers, request_user_data);
 
-  DEBUG("Feeding %lu bytes of payload data for stream ID %lu\n", len, stream_id);
+  DEBUG("Feeding %s%lu bytes of payload data for stream ID %lu\n", (final?"final ":""), len, stream_id);
 
   if (stream_id == NGHQ_STREAM_ID_MAP_NOT_FOUND) {
     return NGHQ_ERROR;
@@ -1254,7 +1269,7 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
   }
   stream->send_state = STATE_BODY;
 
-  frame = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
+  frame = (nghq_io_buf *) calloc (1, sizeof(nghq_io_buf));
 
   rv = create_data_frame (buf, len, &frame->buf, &frame->buf_len);
   frame->complete = (final)?(1):(0);
@@ -1376,7 +1391,7 @@ static int _trim_and_append (nghq_io_buf *buf, const uint8_t *data,
 
 static int _nghq_insert_recv_stream_data (nghq_stream* stream,
                                           const uint8_t* data, size_t datalen,
-                                          size_t off) {
+                                          size_t off, uint8_t eos) {
   uint8_t *buf;
   nghq_io_buf **pbuf = &stream->recv_buf;
 
@@ -1393,7 +1408,7 @@ static int _nghq_insert_recv_stream_data (nghq_stream* stream,
     if (buf == NULL) {
       return NGHQ_OUT_OF_MEMORY;
     }
-    nghq_io_buf_new(pbuf, buf, datalen, 0, off);
+    nghq_io_buf_new(pbuf, buf, datalen, eos, off);
     (*pbuf)->next_buf = next;
     memcpy (buf, data, datalen);
   } else {
@@ -1408,6 +1423,8 @@ static int _nghq_insert_recv_stream_data (nghq_stream* stream,
     if (!_trim_and_append((*pbuf), data, datalen)) {
       return NGHQ_OUT_OF_MEMORY;
     }
+    /* mark buffer as containing the end of the stream if eos set */
+    (*pbuf)->complete |= eos;
   }
 
   /* merge buffer with next if overlapping or adjacent */
@@ -1417,6 +1434,7 @@ static int _nghq_insert_recv_stream_data (nghq_stream* stream,
     if (!_trim_and_append((*pbuf), (*next)->buf + overlap, (*next)->buf_len - overlap)) {
       return NGHQ_OUT_OF_MEMORY;
     }
+    (*pbuf)->complete |= (*next)->complete;
     nghq_io_buf_pop (next);
   }
 
@@ -1543,6 +1561,17 @@ static bool _hdr_field_is_value(nghq_header** hdrs, size_t num_hdrs,
   return false;
 }
 
+static void _free_headers(nghq_header **hdrs, size_t num_hdrs)
+{
+  int i;
+  for (i = 0; i < num_hdrs; i++) {
+    free (hdrs[i]->name);
+    free (hdrs[i]->value);
+    free (hdrs[i]);
+  }
+  free (hdrs);
+}
+
 static int _nghq_stream_push_promise_frame (nghq_session* session,
                                             nghq_stream* stream,
                                             nghq_stream_frame *frame) {
@@ -1563,6 +1592,20 @@ static int _nghq_stream_push_promise_frame (nghq_session* session,
     return NGHQ_HTTP_MALFORMED_FRAME;
   }
 
+  if (hdrs != NULL) {
+    if (session->role == NGHQ_ROLE_CLIENT &&
+        session->mode == NGHQ_MODE_MULTICAST &&
+        _hdr_field_is_value(hdrs, num_hdrs, ":path", "goaway") &&
+        _hdr_field_is_value(hdrs, num_hdrs, "connection", "close")) {
+      /* multicast goaway detected - close the session */
+      nghq_session_close(session, NGHQ_OK);
+      /* flush subsequent packets from receive queue */
+      nghq_io_buf_clear(&session->recv_buf->next_buf);
+      _free_headers(hdrs, num_hdrs);
+      return NGHQ_OK;
+    }
+  }
+
   nghq_stream* new_promised_stream = nghq_stream_init();
   new_promised_stream->push_id = push_id;
   new_promised_stream->user_data = &new_promised_stream->push_id;
@@ -1571,23 +1614,16 @@ static int _nghq_stream_push_promise_frame (nghq_session* session,
   if (hdrs != NULL) {
     int rv;
 
-    if (session->role == NGHQ_ROLE_CLIENT &&
-        session->mode == NGHQ_MODE_MULTICAST &&
-        _hdr_field_is_value(hdrs, num_hdrs, ":path", "goaway") &&
-        _hdr_field_is_value(hdrs, num_hdrs, "connection", "close")) {
-      /* closing the session */
-      nghq_session_close(session, NGHQ_OK);
-      return NGHQ_OK;
-    }
-
     if (session->callbacks.on_begin_promise_callback) {
       rv = session->callbacks.on_begin_promise_callback(session,
                             session->session_user_data, stream->user_data,
                             new_promised_stream->user_data);
       if (rv != NGHQ_OK) {
+        _free_headers(hdrs, num_hdrs);
         return rv;
       }
     } else {
+      _free_headers(hdrs, num_hdrs);
       return NGHQ_NOT_INTERESTED;
     }
     new_promised_stream->recv_state = STATE_HDRS;
@@ -1643,6 +1679,7 @@ static int _nghq_stream_recv_data_at (nghq_stream* stream, size_t offset,
       outbuf->send_pos = outbuf->buf;
       outbuf->remaining = outbuf->buf_len;
       outbuf->offset = offset;
+      outbuf->complete = (*pb)->complete;
       return 1;
     }
     pb = &(*pb)->next_buf;
@@ -1705,6 +1742,7 @@ static int _nghq_stream_frame_add (nghq_stream* stream,
   nghq_stream_frame *f =
                     (nghq_stream_frame*) calloc (1, sizeof(nghq_stream_frame));
   uint8_t *buf = NULL;
+  int complete = 0;
   f->frame_type = frame_type;
   if (frame_type != NGHQ_FRAME_TYPE_DATA) {
     buf = (uint8_t*) malloc (frame_size);
@@ -1718,7 +1756,8 @@ static int _nghq_stream_frame_add (nghq_stream* stream,
     f->data_offset_adjust = f->end_header_offset - stream->data_frames_total;
     stream->data_frames_total += datalen;
   }
-  nghq_io_buf_new (&f->data, buf, frame_size, 0, offset);
+  if (data->complete && frame_size == data->buf_len) complete=1;
+  nghq_io_buf_new (&f->data, buf, frame_size, complete, offset);
   f->gaps = (nghq_gap*) calloc (1, sizeof(nghq_gap));
   if (!f->gaps) {
     nghq_io_buf_clear (&f->data);
@@ -1766,15 +1805,20 @@ static void _remove_gap (nghq_gap **list, size_t begin, size_t end) {
 static size_t _frame_add_data(nghq_stream_frame *frame, nghq_io_buf *data) {
   size_t copy_offset = (data->offset - frame->data->offset);
   size_t copy_len = data->buf_len;
+  int complete = data->complete;
 
   if (copy_len > frame->data->buf_len - copy_offset) {
     copy_len = frame->data->buf_len - copy_offset;
+    /* not including the last bytes of data, so this is not complete */
+    complete = 0;
   }
 
   if (frame->data->buf) {
     // Only copy data if frame has a buffer to put it in
     memcpy (frame->data->buf + copy_offset, data->buf, copy_len);
   }
+
+  frame->data->complete |= complete;
 
   _remove_gap(&frame->gaps, copy_offset, copy_offset + copy_len);
 
@@ -1809,7 +1853,8 @@ static void _frame_free (nghq_stream_frame *frame) {
 }
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
-                           const uint8_t* data, size_t datalen, size_t off) {
+                           const uint8_t* data, size_t datalen, size_t off,
+                           uint8_t end_of_stream) {
   nghq_io_buf frame_data;
   nghq_frame_type frame_type;
 
@@ -1817,7 +1862,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
     return NGHQ_REQUEST_CLOSED;
   }
 
-  _nghq_insert_recv_stream_data(stream, data, datalen, off);
+  _nghq_insert_recv_stream_data(stream, data, datalen, off, end_of_stream);
 
   // Add new frames
   while (_nghq_stream_recv_data_at(stream, stream->next_recv_offset,
@@ -1863,6 +1908,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
           size_t data_offset;
           size_t data_used = used;
           size_t hdr_bytes = 0;
+          int last_data = (*pf)->data->complete;
 
           if (stream->recv_state == STATE_OPEN) {
             // headers frame not seen yet, hang onto data for now
@@ -1881,9 +1927,10 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
           data += hdr_bytes;
           data_offset = frame_data_offset + hdr_bytes - (*pf)->data_offset_adjust;
           // send data immediately - not stored in DATA frames
-          session->callbacks.on_data_recv_callback(session, 0, data, data_used,
-                                                   data_offset,
-                                                   stream->user_data);
+          session->callbacks.on_data_recv_callback(session,
+                                         last_data?NGHQ_DATA_FLAGS_END_DATA:0,
+                                         data, data_used, data_offset,
+                                         stream->user_data);
         }
         _nghq_stream_recv_pop_data(stream, frame_data_offset, used);
         data_modified = 1;

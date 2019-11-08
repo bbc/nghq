@@ -263,6 +263,7 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
     stream->user_data = push_stream->user_data;
 
     nghq_stream_id_map_remove(session->promises, push_id);
+    nghq_stream_ended(session, push_stream);
 
     DEBUG("Server push stream %lu starts push promise %lu\n",
           stream_id, push_id);
@@ -272,7 +273,7 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, uint64_t stream_id,
     abort();
   }
 
-  rv = nghq_recv_stream_data(session, stream, data, datalen, stream_offset);
+  rv = nghq_recv_stream_data(session, stream, data, datalen, stream_offset, fin);
 
   if (rv == NGHQ_NOT_INTERESTED) {
     /* Client has indicated it doesn't care about this stream anymore, stop */
