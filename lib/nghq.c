@@ -53,6 +53,7 @@
 static void _conn_ack_timeout (nghq_session *session, void *timer_id,
                                void *nghq_data)
 {
+  session->conn_ack_timer = NULL;
   nghq_io_buf *new_pkt = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
   new_pkt->buf = (uint8_t *) malloc(
                                  session->transport_settings.max_packet_size);
@@ -69,6 +70,7 @@ static void _conn_ack_timeout (nghq_session *session, void *timer_id,
 static void _conn_loss_timeout (nghq_session *session, void *timer_id,
 		                void *nghq_data)
 {
+  session->conn_loss_timer = NULL;
   ngtcp2_conn_on_loss_detection_alarm (session->ngtcp2_session,
                                        get_timestamp_now());
 }
