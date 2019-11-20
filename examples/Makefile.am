@@ -45,9 +45,10 @@ multicast_sender_SOURCES = \
 	multicast_interfaces.c \
 	multicast_interfaces.h \
 	multicast-sender.c
+
 if HAVE_OPENSSL
 noinst_SCRIPTS = create_cert.sh
-EXTRADIST = create_cert.sh
+EXTRA_DIST = create_cert.sh
 CLEANFILES = \
 	sender.key \
 	sender.pem
