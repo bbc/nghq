@@ -393,7 +393,7 @@ crypto_privkey_sign(const void *data, size_t len, size_t *ret_len, void *key)
     }
 
     if (first_req < req) {
-        fprintf(stderr, "Signature larger than buffer (%u < %u).",
+        fprintf(stderr, "Signature larger than buffer (%zu < %zu).",
                               first_req, req);
         EVP_MD_CTX_destroy(ctx);
         free(sig_buf);

@@ -191,7 +191,7 @@ static int on_begin_headers_cb (nghq_session *session,
                                 void *session_user_data,
                                 void *request_user_data)
 {
-    session_data *data = (session_data*)session_user_data;
+    //session_data *data = (session_data*)session_user_data;
     push_request *req = (push_request*)request_user_data;
     req->headers_incoming = HEADERS_RESPONSE;
     return NGHQ_OK;
@@ -201,7 +201,7 @@ static int on_begin_promise_cb (nghq_session *session, void* session_user_data,
                                 void *request_user_data,
                                 void *promise_user_data)
 {
-    session_data *data = (session_data*) session_user_data;
+    //session_data *data = (session_data*) session_user_data;
     push_request *new_request = calloc(1, sizeof(push_request));
     nghq_set_request_user_data(session, promise_user_data, new_request);
     return NGHQ_OK;
@@ -221,8 +221,8 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
     if (req->headers_incoming!=HEADERS_REQUEST &&
         hdr->name_len == sizeof(content_type_field)-1 &&
         hdr->value_len >= sizeof(content_type_text) &&
-        strncasecmp(hdr->name, content_type_field, hdr->name_len) == 0 &&
-        strncasecmp(hdr->value, content_type_text,
+        strncasecmp((const char*)hdr->name, content_type_field, hdr->name_len) == 0 &&
+        strncasecmp((const char*)hdr->value, content_type_text,
                     sizeof(content_type_text)-1) == 0) {
         req->text_body = true;
     }

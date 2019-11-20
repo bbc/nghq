@@ -97,76 +97,82 @@ typedef struct server_session {
 static char method_hdr[] = ":method";
 static char method_value[] = "GET";
 static const nghq_header method_header = {
-    method_hdr, sizeof(method_hdr)-1, method_value, sizeof(method_value)-1
+    (uint8_t*)method_hdr, sizeof(method_hdr)-1,
+    (uint8_t*)method_value, sizeof(method_value)-1
 };
 static char scheme_hdr[] = ":scheme";
 static char scheme_value[] = "https";
 static nghq_header scheme_header = {
-    scheme_hdr, sizeof(scheme_hdr)-1, scheme_value, sizeof(scheme_value)-1
+    (uint8_t*)scheme_hdr, sizeof(scheme_hdr)-1,
+    (uint8_t*)scheme_value, sizeof(scheme_value)-1
 };
 static char path_hdr[] = ":path";
 static nghq_header path_header = {
-    path_hdr, sizeof(path_hdr)-1, NULL, 0
+    (uint8_t*)path_hdr, sizeof(path_hdr)-1, NULL, 0
 };
 static char host_hdr[] = ":authority";
 static nghq_header host_header = {
-    host_hdr, sizeof(host_hdr)-1, NULL, 0
+    (uint8_t*)host_hdr, sizeof(host_hdr)-1, NULL, 0
 };
 static char user_agent_hdr[] = "user-agent";
 static char user_agent_value[] = "NGHQ-Example/1.0 (Linux) NGHQ/20180321 NGHQ-Server/1.0";
 static const nghq_header user_agent_header = {
-    user_agent_hdr, sizeof(user_agent_hdr)-1, user_agent_value, sizeof(user_agent_value)-1
+    (uint8_t*)user_agent_hdr, sizeof(user_agent_hdr)-1,
+    (uint8_t*)user_agent_value, sizeof(user_agent_value)-1
 };
 
 #if HAVE_OPENSSL
 static char signature_hdr[] = "signature";
 static nghq_header req_signature_header = {
-    signature_hdr, sizeof(signature_hdr)-1, NULL, 0
+    (uint8_t*)signature_hdr, sizeof(signature_hdr)-1, NULL, 0
 };
 #endif
 
 static const nghq_header *g_request_hdrs[] = {
-  &method_header, &scheme_header, &host_header, &path_header, &user_agent_header
+    &method_header, &scheme_header, &host_header, &path_header,
+    &user_agent_header
 #if HAVE_OPENSSL
-  , &req_signature_header
+    , &req_signature_header
 #endif
 };
 
 static char status_hdr[] = ":status";
 static char status_value[] = "200";
 static const nghq_header status_header = {
-  status_hdr, sizeof(status_hdr)-1, status_value, sizeof(status_value)-1
+    (uint8_t*)status_hdr, sizeof(status_hdr)-1,
+    (uint8_t*)status_value, sizeof(status_value)-1
 };
 
 static char server_hdr[] = "server";
 static char server_value[] = "NGHQ-Server/1.0 (GNU/Linux)";
 static const nghq_header server_header = {
-  server_hdr, sizeof(server_hdr)-1, server_value, sizeof(server_value)-1
+    (uint8_t*)server_hdr, sizeof(server_hdr)-1,
+    (uint8_t*)server_value, sizeof(server_value)-1
 };
 static char date_hdr[] = "date";
 static nghq_header date_header = {
-  date_hdr, sizeof(date_hdr)-1, NULL, 0
+    (uint8_t*)date_hdr, sizeof(date_hdr)-1, NULL, 0
 };
 static char content_type_hdr[] = "content-type";
 static nghq_header content_type_header = {
-  content_type_hdr, sizeof(content_type_hdr)-1, NULL, 0
+    (uint8_t*)content_type_hdr, sizeof(content_type_hdr)-1, NULL, 0
 };
 
 #if HAVE_OPENSSL
 static char digest_hdr[] = "digest";
 static nghq_header digest_header = {
-    digest_hdr, sizeof(digest_hdr)-1, NULL, 0
+    (uint8_t*)digest_hdr, sizeof(digest_hdr)-1, NULL, 0
 };
 
 static nghq_header resp_signature_header = {
-    signature_hdr, sizeof(signature_hdr)-1, NULL, 0
+    (uint8_t*)signature_hdr, sizeof(signature_hdr)-1, NULL, 0
 };
 #endif
 
 static const nghq_header *g_response_hdrs[] = {
-  &status_header, &server_header, &date_header, &content_type_header
+    &status_header, &server_header, &date_header, &content_type_header
 #if HAVE_OPENSSL
-  , &digest_header, &resp_signature_header
+    , &digest_header, &resp_signature_header
 #endif
 };
 
@@ -303,14 +309,14 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
     /* Set Date header */
     clock_gettime(CLOCK_REALTIME_COARSE, &now);
     strftime(date_str, sizeof(date_str)-1, "%a, %e %b %Y %H:%M:%S GMT", gmtime(&now.tv_sec));
-    date_header.value = date_str;
+    date_header.value = (uint8_t*)date_str;
     date_header.value_len = strlen(date_str);
 
     /* Set :path header */
     path_len = strlen(filename) - filename_skip_chars + strlen(path_prefix) + 1;
     path_str = malloc(path_len + 1);
     sprintf(path_str,"%s/%s", path_prefix, filename+filename_skip_chars);
-    path_header.value = path_str;
+    path_header.value = (uint8_t*)path_str;
     path_header.value_len = path_len;
 
     /* Set Content-Type header */
@@ -493,7 +499,8 @@ static void _send_file_or_dir(const char *file_or_dir,
                 free(file_path);
                 continue;
             }
-            if (S_ISDIR(stats.st_mode) && recursive || !S_ISDIR(stats.st_mode))
+            if ((S_ISDIR(stats.st_mode) && recursive) ||
+                !S_ISDIR(stats.st_mode))
                 _send_file_or_dir(file_path, filename_skip_chars, path_prefix,
                                   recursive);
             free(file_path);
@@ -620,6 +627,7 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
     /* push_request *req = (push_request*)request_user_data; */
     /* printf("%c> %*s: %*s\n", ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'),
             hdr->name_len, hdr->name, hdr->value_len, hdr->value); */
+    return NGHQ_OK;
 }
 
 static int on_data_recv_cb (nghq_session *session, uint8_t flags,
@@ -627,17 +635,20 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
                             void *request_user_data)
 {
     printf("Received %zu bytes\n", len);
+    return NGHQ_OK;
 }
 
 static int on_push_cancel_cb (nghq_session *session, void *request_user_data)
 {
     printf("Push cancelled\n");
+    return NGHQ_OK;
 }
 
 static int on_request_close_cb  (nghq_session *session, nghq_error status,
                                  void *request_user_data)
 {
     printf("Request finished\n");
+    return NGHQ_OK;
 }
 
 typedef struct timer_data {
@@ -890,9 +901,6 @@ static int parse_url(const char *url, const char **authority, const char **path)
 
 int main(int argc, char *argv[])
 {
-    struct sockaddr_in mcast_addr;
-    int result;
-    int i;
     static const int on = 1;
 
     static const char short_opts[] = "hi:p:t:u:";

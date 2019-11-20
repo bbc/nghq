@@ -14,7 +14,8 @@ _add_header_block(char *result, size_t *len, const char *hdr,
 {
     bool found_header = false;
     for (size_t i=0; i<headers_length; i++) {
-        if (strncasecmp(headers[i]->name, hdr, headers[i]->name_len) == 0 &&
+        if (strncasecmp((const char *)headers[i]->name, hdr,
+                        headers[i]->name_len) == 0 &&
             hdr[headers[i]->name_len] == '\0') {
             size_t old_len = *len;
             if (found_header) {
@@ -46,7 +47,6 @@ _make_block(const char **hdrs_list, const nghq_header **headers,
 
     for (const char **hl_it = hdrs_list; *hl_it; hl_it++) {
         size_t hdr_len = strlen(*hl_it);
-        bool found_header = false;
 
         /* Add header name onto the headers list string (hl_str) */ 
         *hl_str = realloc(*hl_str, hl_str_len + hdr_len + 1);
@@ -106,7 +106,6 @@ signature_hdr_value(void *private_key, const char *key_id,
     char *block, *hdrs_list_str = NULL, *result, *tmp;
     const char *key_alg = NULL;
     size_t sig_len = 0;
-    size_t signed_headers = 0;
     void *sig;
     size_t b64_sig_len, hdr_len;
 
