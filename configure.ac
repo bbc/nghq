@@ -111,6 +111,7 @@ AC_CONFIG_FILES([
   include/nghq/Makefile
   tests/Makefile
   examples/Makefile
+  redhat/libnghq.spec
 ])
 
 AC_OUTPUT

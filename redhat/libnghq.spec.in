@@ -1,0 +1,67 @@
+Name: @PACKAGE_NAME@
+Version: @PACKAGE_VERSION@
+Release: 1%{?dist}
+License: MIT
+Source0: %{name}-%{version}.tar.gz
+URL: https://github.com/bbc/nghq.git
+
+BuildRequires: autoconf automake libtool make gcc gcc-c++
+BuildRequires: libngtcp2-devel%{?_isa} >= 0.1.0
+BuildRequires: libnghttp2-devel%{?_isa}
+BuildRequires: libev-devel%{?_isa}
+BuildRequires: openssl-devel%{?_isa}
+
+Summary: Library providing multicast HTTP/3 over IETF QUIC
+
+%description
+A library which provides an API suitable for creating clients or servers for
+HTTP/3 over IETF QUIC. The library also provides mechanisms to use these
+protocols over IP multicast.
+
+%package examples
+Summary: Multicast HTTP/3 over IETF QUIC example programs
+Requires: %{name}%{?_isa} = %{version}
+
+%description examples
+An example multicast IETF QUIC and HTTP/3 sender and receiver.
+
+%package devel
+Summary: Development support files for %{name}
+Requires: %{name}%{?_isa} = %{version}
+
+%description devel
+The development files for the %{name} library.
+
+%post -p /sbin/ldconfig
+
+%postun -p /sbin/ldconfig
+
+%prep
+%setup -q
+
+%build
+%configure
+make %{?_smp_mflags}
+
+%install
+%make_install
+install -m 755 -d %{?buildroot}%{_bindir}
+./libtool --mode=install install -m 755 examples/multicast-sender %{?buildroot}%{_bindir}/multicast-sender
+./libtool --mode=install install -m 755 examples/multicast-receiver %{?buildroot}%{_bindir}/multicast-receiver
+
+%files
+%{_libdir}/lib*.so.*
+
+%files examples
+%doc AUTHORS COPYING INSTALL NEWS README ChangeLog
+%{_bindir}/multicast-sender
+%{_bindir}/multicast-receiver
+
+%files devel
+%{_libdir}/lib*.so
+%{_libdir}/pkgconfig/libnghq.pc
+%{_includedir}/nghq/*
+
+%changelog
+* Wed Nov 20 2019 - David Waring <david.waring@rd.bbc.co.uk> - 0.0.1-1
+- Initial RPM packaging
