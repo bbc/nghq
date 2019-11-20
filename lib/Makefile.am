@@ -41,10 +41,12 @@ OBJECTS = \
 	nghq.c
 
 HDRS = \
+	debug.h \
 	frame_creator.h \
 	frame_parser.h \
 	frame_types.h \
 	header_compression.h \
+	lang.h \
 	map.h \
 	nghq_internal.h \
 	tcp2_callbacks.h \
