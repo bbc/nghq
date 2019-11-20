@@ -29,6 +29,6 @@ Name: libnghq
 Description: nghq library
 URL: https://github.com/bbc/nghq
 Version: @VERSION@
-Requires: ngtcp2, nghttp2
+Requires: libngtcp2, libnghttp2
 Libs: -L${libdir} -lnghq
 Cflags: -I${includedir}
