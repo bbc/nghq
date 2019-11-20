@@ -48,7 +48,8 @@ multicast_sender_SOURCES = \
 
 if HAVE_OPENSSL
 noinst_SCRIPTS = create_cert.sh
-EXTRA_DIST = create_cert.sh
+EXTRA_DIST = \
+	create_cert.sh
 CLEANFILES = \
 	sender.key \
 	sender.pem

@@ -48,6 +48,9 @@ make %{?_smp_mflags}
 install -m 755 -d %{?buildroot}%{_bindir}
 ./libtool --mode=install install -m 755 examples/multicast-sender %{?buildroot}%{_bindir}/multicast-sender
 ./libtool --mode=install install -m 755 examples/multicast-receiver %{?buildroot}%{_bindir}/multicast-receiver
+install -m 755 -d %{?buildroot}%{_pkgdocdir}
+./libtool --mode=install install -m 755 examples/create_cert.sh %{?buildroot}%{_pkgdocdir}/create_cert.sh
+rm -f %{?buildroot}%{_libdir}/lib*.la
 
 %files
 %{_libdir}/lib*.so.*
@@ -56,9 +59,11 @@ install -m 755 -d %{?buildroot}%{_bindir}
 %doc AUTHORS COPYING INSTALL NEWS README ChangeLog
 %{_bindir}/multicast-sender
 %{_bindir}/multicast-receiver
+%{_pkgdocdir}/create_cert.sh
 
 %files devel
 %{_libdir}/lib*.so
+%{_libdir}/lib*.a
 %{_libdir}/pkgconfig/libnghq.pc
 %{_includedir}/nghq/*
 
