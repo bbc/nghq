@@ -1674,6 +1674,28 @@ static int _nghq_stream_max_push_id_frame (nghq_session* session,
 static int _nghq_stream_recv_data_at (nghq_stream* stream, size_t offset,
                                       nghq_io_buf *outbuf) {
   nghq_io_buf **pb = &stream->recv_buf;
+  if (stream->stream_id == 4 && *pb) {
+    /* Always pass back the first buffer for stream 4 on or after offset */
+    if ((*pb)->offset <= offset && (*pb)->offset + (*pb)->buf_len > offset) {
+      /* requested offset is within the first buffer, trim response */
+      outbuf->buf = (*pb)->buf + (offset - (*pb)->offset);
+      outbuf->buf_len = (*pb)->buf_len - (offset - (*pb)->offset);
+      outbuf->send_pos = outbuf->buf;
+      outbuf->remaining = outbuf->buf_len;
+      outbuf->offset = offset;
+      outbuf->complete = (*pb)->complete;
+      return 1;
+    } else if ((*pb)->offset > offset) {
+      /* requested offset not in first buffer, just pass what's left */
+      outbuf->buf = (*pb)->send_pos;
+      outbuf->buf_len = (*pb)->remaining;
+      outbuf->send_pos = outbuf->buf;
+      outbuf->remaining = outbuf->buf_len;
+      outbuf->offset = (*pb)->offset + (*pb)->buf_len - (*pb)->remaining;
+      outbuf->complete = (*pb)->complete;
+      return 1;
+    }
+  }
   while (*pb) {
     if ((*pb)->offset <= offset && (*pb)->offset + (*pb)->buf_len > offset) {
       outbuf->buf = (*pb)->buf + (offset - (*pb)->offset);
@@ -1867,6 +1889,12 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
   _nghq_insert_recv_stream_data(stream, data, datalen, off, end_of_stream);
 
   // Add new frames
+  if (stream->stream_id == 4 && stream->recv_buf) {
+    // Always add frames for stream 4 from start of first available buffer
+    stream->next_recv_offset = stream->recv_buf->offset +
+                               stream->recv_buf->buf_len -
+                               stream->recv_buf->remaining;
+  }
   while (_nghq_stream_recv_data_at(stream, stream->next_recv_offset,
                                    &frame_data) > 0) {
     if (SERVER_PUSH_STREAM(stream->stream_id) &&
@@ -1887,7 +1915,7 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
 
     if (size > 0) {
       _nghq_stream_frame_add(stream, frame_type, size, frame_data.offset, &frame_data);
-      stream->next_recv_offset += size;
+      stream->next_recv_offset = frame_data.offset+size;
     } else {
       break;
     }
@@ -1921,20 +1949,20 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
             stream->recv_state = STATE_BODY;
           }
 
-          if (frame_data_offset < (*pf)->end_header_offset) {
+          if (frame_data.offset < (*pf)->end_header_offset) {
             // first block of body frame, skip header
-            hdr_bytes = (*pf)->end_header_offset - frame_data_offset;
+            hdr_bytes = (*pf)->end_header_offset - frame_data.offset;
           }
           data_used -= hdr_bytes;
           data += hdr_bytes;
-          data_offset = frame_data_offset + hdr_bytes - (*pf)->data_offset_adjust;
+          data_offset = frame_data.offset + hdr_bytes - (*pf)->data_offset_adjust;
           // send data immediately - not stored in DATA frames
           session->callbacks.on_data_recv_callback(session,
                                          last_data?NGHQ_DATA_FLAGS_END_DATA:0,
                                          data, data_used, data_offset,
                                          stream->user_data);
         }
-        _nghq_stream_recv_pop_data(stream, frame_data_offset, used);
+        _nghq_stream_recv_pop_data(stream, frame_data.offset, used);
         data_modified = 1;
       }
 
