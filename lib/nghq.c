@@ -50,6 +50,19 @@
  * (quic pkt header + quic stream frame header + http/quic data header) */
 #define MIN_STREAM_PACKET_OVERHEAD 27
 
+static void _check_for_trailers (nghq_stream *stream, const nghq_header **hdrs,
+                                 size_t num_hdrs)
+{
+  static const char trailer_name[] = "trailer";
+  size_t i;
+  for (i = 0; i < num_hdrs; i++) {
+    if (hdrs[i]->name_len == sizeof(trailer_name)-1 &&
+        strncasecmp ((const char*)hdrs[i]->name, trailer_name, sizeof(trailer_name)-1) == 0) {
+      stream->flags |= STREAM_FLAG_TRAILERS_PROMISED;
+    }
+  }
+}
+
 static void _conn_ack_timeout (nghq_session *session, void *timer_id,
                                void *nghq_data)
 {
@@ -1193,6 +1206,7 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
 
     stream->stream_id = stream_id;
     stream->send_state = STATE_HDRS;
+    _check_for_trailers(stream, hdrs, num_hdrs);
 
     DEBUG("Push promise %lu will be sent on stream ID %lu\n", push_id,
           stream_id);
@@ -1212,9 +1226,11 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
     stream = nghq_stream_id_map_find(session->transfers, stream_id);
     switch (stream->send_state) {
       case STATE_OPEN:
+        _check_for_trailers(stream, hdrs, num_hdrs);
         stream->send_state = STATE_HDRS;
         break;
       case STATE_HDRS:
+        _check_for_trailers(stream, hdrs, num_hdrs);
         break;
       case STATE_BODY:
         if (STREAM_TRAILERS_PROMISED(stream->flags)) {
@@ -1548,7 +1564,7 @@ static int _nghq_stream_settings_frame (nghq_session* session,
 }
 
 static bool _hdr_field_is_value(nghq_header** hdrs, size_t num_hdrs,
-                                       const char *field, const char *value)
+                                const char *field, const char *value)
 {
   size_t field_len = strlen(field);
   size_t value_len = strlen(value);
