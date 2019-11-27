@@ -1005,6 +1005,7 @@ int main(int argc, char *argv[])
 "\n", default_mcast_grp, default_ifc_ip);
     }
     if (usage) {
+      free_multicast_interfaces(ifcs);
       return err_out;
     }
 
