@@ -38,6 +38,7 @@ OBJECTS = \
 	tcp2_callbacks.c \
 	multicast.c \
 	io_buf.c \
+	version.c \
 	nghq.c
 
 HDRS = \
@@ -54,8 +55,20 @@ HDRS = \
 	io_buf.h \
 	util.h
 
-libnghq_la_CFLAGS = -I$(top_srcdir)/include $(NGTCP2_CFLAGS) $(NGHTTP2_CFLAGS)
+libnghq_la_CFLAGS = -I$(top_builddir)/include -I$(top_srcdir)/include $(NGTCP2_CFLAGS) $(NGHTTP2_CFLAGS)
 libnghq_la_LIBADD = $(NGTCP2_LIBS) $(NGHTTP2_LIBS)
 libnghq_la_SOURCES = $(HDRS) $(OBJECTS)
+nodist_libnghq_la_SOURCES = git-version.h
 libnghq_la_LDFLAGS = -no-undefined \
     -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
+
+BUILT_SOURCES = git-version.h
+.PHONY: FORCE
+git-version.h:  FORCE
+	@echo '#ifndef _GIT_VERSION_H_' > $@.new
+	@echo '#define _GIT_VERSION_H_' >> $@.new
+	@echo '#define PACKAGE_REVISION "'`if test -d "$(top_srcdir)/.git"; then (cd "$(top_srcdir)"; git describe --always --dirty); else echo "$(PACKAGE_CONFIGURE_REVISION)"; fi`'"' >> $@.new
+	@echo '#endif' >> $@.new
+	@diff -q $@.new $@ 2>/dev/null && rm -f $@.new || mv -f $@.new $@
+
+CLEANFILES = git-version.h

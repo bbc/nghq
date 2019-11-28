@@ -104,11 +104,23 @@ AC_ARG_ENABLE([debug],
     [AS_HELP_STRING([--enable-debug], [Enable debugging output from the library])],
     AC_DEFINE([DEBUGOUT], 1, [Enable debugging output from the library]))
 
+AX_PACKAGE_VERSION
+
+PACKAGE_AUTOCONF_REVISION=m4_esyscmd_s([git describe --always --dirty])
+AC_SUBST([PACKAGE_AUTOCONF_REVISION])
+AS_IF([test -d "${ac_top_srcdir}/.git"], [
+    PACKAGE_CONFIGURE_REVISION=`cd ${ac_top_srcdir}; git describe --always --dirty`
+],[
+    PACKAGE_CONFIGURE_REVISION="$PACKAGE_AUTOCONF_REVISION"
+])
+AC_SUBST([PACKAGE_CONFIGURE_REVISION])
+
 AC_CONFIG_FILES([
   Makefile
   lib/libnghq.pc
   lib/Makefile
   include/nghq/Makefile
+  include/nghq/version.h
   tests/Makefile
   examples/Makefile
   redhat/libnghq.spec
