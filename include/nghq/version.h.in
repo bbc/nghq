@@ -1,0 +1,52 @@
+/*
+ * nghq - library version numbers
+ *
+ * Copyright (c) 2018 British Broadcasting Corporation
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+#ifndef NGHQ_VERSION_H
+#define NGHQ_VERSION_H
+
+#define NGHQ_VERSION_MAJOR (@PACKAGE_VERSION_MAJOR@)
+#define NGHQ_VERSION_MINOR (@PACKAGE_VERSION_MINOR@)
+#define NGHQ_VERSION_MICRO (@PACKAGE_VERSION_MICRO@)
+
+#define MAKE_NGHQ_VERSION(MAJOR, MINOR, MICRO) \
+	(((MAJOR)*1000000) + ((MINOR)*1000) + (MICRO))
+
+#define NGHQ_VERSION MAKE_NGHQ_VERSION (NGHQ_VERSION_MAJOR, NGHQ_VERSION_MINOR, NGHQ_VERSION_MICRO)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern const char *nghq_version_string();
+extern unsigned int nghq_version_major();
+extern unsigned int nghq_version_minor();
+extern unsigned int nghq_version_micro();
+extern unsigned int nghq_version();
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
