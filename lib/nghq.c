@@ -1486,6 +1486,10 @@ int _nghq_stream_headers_frame (nghq_session* session, nghq_stream* stream,
     int rv;
     uint8_t flags = 0;
 
+    if (frame->data->complete) {
+      flags |= NGHQ_HEADERS_FLAGS_END_REQUEST;
+    }
+
     if (STREAM_STARTED(stream->flags)) {
       if (session->callbacks.on_begin_headers_callback) {
         rv = session->callbacks.on_begin_headers_callback(session,
@@ -1498,7 +1502,7 @@ int _nghq_stream_headers_frame (nghq_session* session, nghq_stream* stream,
     }
 
     if (stream->recv_state > STATE_HDRS) {
-      flags += NGHQ_HEADERS_FLAGS_TRAILERS;
+      flags |= NGHQ_HEADERS_FLAGS_TRAILERS;
     }
 
     rv = nghq_deliver_headers (session, flags, hdrs, num_hdrs,
@@ -1631,6 +1635,11 @@ static int _nghq_stream_push_promise_frame (nghq_session* session,
 
   if (hdrs != NULL) {
     int rv;
+    uint8_t flags = 0;
+
+    if (frame->data->complete) {
+      flags |= NGHQ_HEADERS_FLAGS_END_REQUEST;
+    }
 
     if (session->callbacks.on_begin_promise_callback) {
       rv = session->callbacks.on_begin_promise_callback(session,
@@ -1646,7 +1655,7 @@ static int _nghq_stream_push_promise_frame (nghq_session* session,
     }
     new_promised_stream->recv_state = STATE_HDRS;
 
-    rv = nghq_deliver_headers (session, 0, hdrs, num_hdrs,
+    rv = nghq_deliver_headers (session, flags, hdrs, num_hdrs,
                                new_promised_stream->user_data);
     if (rv != NGHQ_OK) {
       return rv;
@@ -2043,8 +2052,16 @@ int nghq_deliver_headers (nghq_session* session, uint8_t flags,
                           nghq_header **hdrs, size_t num_hdrs,
                           void *request_user_data) {
   int i, rv = NGHQ_OK;
+  /* remember fin bit */
+  uint8_t fin = flags & NGHQ_HEADERS_FLAGS_END_REQUEST;
 
+  /* remove fin bit until last header */
+  flags &= ~NGHQ_HEADERS_FLAGS_END_REQUEST;
   for (i = 0; i < num_hdrs; i++) {
+    if (i == num_hdrs - 1) {
+      /* put fin bit back on last header */
+      flags |= fin;
+    }
     if (rv == NGHQ_OK) {
       rv = session->callbacks.on_headers_callback(session, flags, hdrs[i],
                                                   request_user_data);
