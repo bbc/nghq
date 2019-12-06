@@ -2379,10 +2379,11 @@ struct alpn_name {
 };
 END_PACKED_STRUCT(alpn_name)
 
-static const struct alpn_name * const _draft9_alpn = (const struct alpn_name*)"\x06hqm-03";
-static const struct alpn_name *_draft9_alpns[] = {_draft9_alpn, NULL};
+static const struct alpn_name * const _draft9_alpns[] = {
+        (const struct alpn_name *const)"\x06hqm-03",
+        NULL};
 
-static const struct alpn_name **_get_alpn_protocols()
+static const struct alpn_name * const *_get_alpn_protocols()
 {
 #if NGTCP2_PROTO_VER_MAX == NGTCP2_PROTO_VER_D9
     return _draft9_alpns;
@@ -2394,7 +2395,7 @@ static const struct alpn_name **_get_alpn_protocols()
 ssize_t nghq_select_alpn (nghq_session *session, const uint8_t *buf,
                           size_t buflen, const uint8_t **proto)
 {
-    const struct alpn_name **alpn_protocols = _get_alpn_protocols ();
+    const struct alpn_name * const *alpn_protocols = _get_alpn_protocols ();
 
     if (session == NULL || session->role != NGHQ_ROLE_SERVER)
         return (ssize_t) NGHQ_SERVER_ONLY;
@@ -2415,7 +2416,7 @@ ssize_t nghq_select_alpn (nghq_session *session, const uint8_t *buf,
 
 ssize_t nghq_get_alpn (const uint8_t **alpn)
 {
-    const struct alpn_name **alpn_protocols = _get_alpn_protocols ();
+    const struct alpn_name * const *alpn_protocols = _get_alpn_protocols ();
     static size_t total_len = 0;
     static uint8_t *alpns = NULL;
 
