@@ -54,6 +54,11 @@ AC_PROG_MKDIR_P
 
 AC_CONFIG_MACRO_DIR([m4])
 
+AC_PROG_CC_C99
+AS_IF([test "x$ac_cv_prog_cc_c99" = "no"], [
+  AC_MSG_ERROR([[Compilation requires a C compiler that can do iat least ISO C99.]])
+])
+
 #AC_CONFIG_HEADERS([config.h])
 
 AX_PACKED_STRUCT
