@@ -27,18 +27,43 @@
 #define LIB_MULTICAST_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 
-size_t get_fake_client_initial_packet (uint64_t conn_id, uint32_t init_pkt_num,
-                                       uint32_t init_max_stream_data,
-                                       uint32_t init_max_data, uint8_t **pkt);
+#include "nghq_internal.h"
 
-size_t get_fake_server_handshake_packet (uint64_t conn_id, uint32_t pkt_num,
-                                         uint32_t init_max_stream_data,
-                                         uint32_t init_max_data, uint8_t **pkt);
+#define FAKE_CLIENT_INITIAL_DCID_LEN 16
+static const uint8_t fake_client_initial_dcid[] = {
+  0x6d, 0x63, 0x61, 0x73, /* "mcast-quic-recv\0" */
+  0x74, 0x2d, 0x71, 0x75,
+  0x69, 0x63, 0x2d, 0x72,
+  0x65, 0x63, 0x76, 0x00,
+};
 
-size_t get_fake_client_stream_4_packet (uint64_t conn_id, uint32_t pkt_num,
-                                        uint64_t max_data, uint8_t **pkt);
+#define FAKE_SERVER_HANDSHAKE_SCID_LEN 16
+static const uint8_t fake_server_handshake_scid[] = {
+  0x6d, 0x63, 0x61, 0x73, /* "mcast-quic-serv\0" */
+  0x74, 0x2d, 0x71, 0x75,
+  0x69, 0x63, 0x2d, 0x73,
+  0x65, 0x72, 0x76, 0x00,
+};
+
+size_t get_fake_client_initial_packet (uint8_t* sid, size_t sid_len,
+                                       uint32_t init_pkt_num,
+                                       nghq_transport_parameters *t_params,
+                                       uint8_t **pkt);
+
+size_t get_fake_server_initial_packet (uint8_t* sid, size_t sid_len,
+                                       uint32_t pkt_num,
+                                       nghq_transport_parameters *t_params,
+                                       uint8_t **pkt);
+
+size_t get_fake_server_handshake_packet (uint8_t* sid, size_t sid_len,
+                                         uint32_t pkt_num,
+                                         nghq_transport_parameters *t_params,
+                                         uint8_t **pkt);
+
+size_t get_fake_client_stream_0_packet (uint32_t pkt_num, uint8_t **pkt);
 
 static const uint8_t quic_mcast_magic[] = {
     0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */

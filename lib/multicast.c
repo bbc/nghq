@@ -25,291 +25,550 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 #include "multicast.h"
 #include "util.h"
 
-static const uint8_t fake_client_initial_packet[] = {
-    0xff,     /* Long header | Initial packet */
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x01, /* connection id = 1 */
-    0xff, 0x00, 0x00, 0x09, /* version = 0xff000009 */
-    0x00, 0x00, 0x00, 0x00, /* Packet number = 0 */
-    0x12,     /* Stream frame with length */
-    0x00,       /* Stream ID = 0 */
-    0x37,       /* Length = 55 */
-    /*** Transport Parameters ***/
-    0xff, 0x00, 0x00, 0x09, /* Initial QUIC version: draft-09 */
-    0x00, 0x31,   /* Size of optional parameters = 49 */
-    0x00, 0x00,   /* initial_max_stream_data */
-    0x00, 0x04, 0x00, 0x04, 0x00, 0x00, /* 32 bit, 262144 */
-    0x00, 0x01,   /* initial_max_data */
-    0x00, 0x04, 0x00, 0x10, 0x00, 0x00, /* 32 bit, 1048576 */
-    0x00, 0x02,   /* initial_max_stream_id_bidi (optional) */
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x01, /* 32 bit, 1 */
-    0x00, 0x03,   /* idle_timeout */
-    0x00, 0x02, 0x00, 0x1e, /* 16-bit, 30 */
-    0x00, 0x05,   /* max_packet_size */
-    0x00, 0x02, 0xff, 0xf7, /* 16-bit, 65527 */
-    0x00, 0x07,   /* ack_delay_exponent */
-    0x00, 0x01, 0x03, /* 8-bit, 3 */
-    0x00, 0x08,   /* initial_max_stream_id_uni */
-    0x00, 0x04, 0xff, 0xff, 0xff, 0xff, /* 32-bit, 4294967295 - for push promises! */
-    /*** End Transport Parameters ***/
-    0x12,     /* Stream frame with length */
-    0x02,       /* Stream ID = 2, Client control stream */
-    0x00,       /* Length = 0 */ /* TODO: Add a SETTINGS frame */
-    0x00,     /* Padding frame */
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 79 - 84 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 85 - 92 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 93 - 100 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 101 - 108 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 109 - 116 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 117 - 124 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 125 - 132 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 133 - 140 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 141 - 148 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 149 - 156 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 157 - 164 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 165 - 172 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 173 - 180 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 181 - 188 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 189 - 196 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 197 - 204 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 205 - 212 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 213 - 220 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 221 - 228 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 229 - 236 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 237 - 244 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 245 - 252 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 253 - 260 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 261 - 268 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 269 - 276 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 277 - 284 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 285 - 292 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 293 - 300 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 301 - 308 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 309 - 316 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 317 - 324 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 325 - 332 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 333 - 340 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 341 - 348 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 349 - 356 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 357 - 364 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 365 - 372 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 373 - 380 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 381 - 388 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 389 - 396 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 397 - 404 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 405 - 412 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 413 - 420 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 421 - 428 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 429 - 436 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 437 - 444 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 445 - 452 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 453 - 460 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 461 - 468 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 469 - 476 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 477 - 484 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 485 - 492 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 493 - 500 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 501 - 508 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 509 - 516 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 517 - 524 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 525 - 532 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 533 - 540 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 541 - 548 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 549 - 556 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 557 - 564 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 565 - 572 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 573 - 580 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 581 - 588 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 589 - 596 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 597 - 604 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 605 - 612 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 613 - 620 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 621 - 628 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 629 - 636 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 637 - 644 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 645 - 652 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 653 - 660 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 661 - 668 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 669 - 676 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 677 - 684 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 685 - 692 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 693 - 700 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 701 - 708 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 709 - 716 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 717 - 724 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 725 - 732 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 733 - 740 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 741 - 748 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 749 - 756 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 757 - 764 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 765 - 772 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 773 - 780 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 781 - 788 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 789 - 796 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 797 - 804 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 805 - 812 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 813 - 820 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 821 - 828 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 829 - 836 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 837 - 844 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 845 - 852 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 853 - 860 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 861 - 868 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 869 - 876 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 877 - 884 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 885 - 892 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 893 - 900 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 901 - 908 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 909 - 916 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 917 - 924 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 925 - 932 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 933 - 940 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 941 - 948 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 949 - 956 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 957 - 964 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 965 - 972 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 973 - 980 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 981 - 988 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 989 - 996 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 997 - 1004 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1005 - 1012 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1013 - 1020 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1021 - 1028 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1029 - 1036 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1037 - 1044 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1045 - 1052 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1053 - 1060 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1061 - 1068 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1069 - 1076 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1077 - 1084 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1085 - 1092 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1093 - 1100 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1101 - 1108 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1109 - 1116 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1117 - 1124 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1125 - 1132 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1133 - 1140 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1141 - 1148 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1149 - 1156 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1157 - 1164 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1165 - 1172 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1173 - 1180 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1181 - 1188 */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* padding 1189 - 1196 */
-    0x00, 0x00, 0x00                                /* padding 1197 - 1199 */
-};
-#define LENGTH_INITIAL_PACKET sizeof(fake_client_initial_packet)
+/* +-+-+-+-+-+-+-+-+
+ * |1|1| 0 |R R|P P|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Version (32)                          |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | DCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |               Destination Connection ID (0..160)            ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | SCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                 Source Connection ID (0..160)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Token Length (i)                    ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                            Token (*)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                           Length (i)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                    Packet Number (8/16/24/32)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                          Payload (*)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
 
-static const uint8_t fake_server_handshake_packet[] = {
-    0xfd,     /* Long header | Handshake packet */
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x01, /* connection id = 1 */
-    0xff, 0x00, 0x00, 0x09, /* version = 0xff000009 */
-    0x67, 0x45, 0x23, 0x01, /* Packet number = 0x01234567 */
-    0x12,     /* Stream frame with length */
-    0x00,       /* Stream ID = 0 */
-    0x40, 0x45,       /* Length = 69 */
-    /*** Transport Parameters ***/
-    0xff, 0x00, 0x00, 0x09, /* "Negotiated" version: draft-09 */
-    0x04,                     /* Length of Supported versions: 4 bytes/1 ver */
-    0xff, 0x00, 0x00, 0x09,   /* Supported version 1: draft-09 */
-    0x00, 0x3a,   /* Length of Parameters: 58 */
-    0x00, 0x00,     /* initial_max_stream_data */
-    0x00, 0x04, 0x00, 0x04, 0x00, 0x00, /* 32-bit, 262144 */
-    0x00, 0x01,     /* initial_max_data */
-    0x00, 0x04, 0x00, 0x10, 0x00, 0x00, /* 32-bit, 1048576 */
-    0x00, 0x03,     /* idle_timeout */
-    0x00, 0x02, 0x00, 0x3c,             /* 16-bit, 30 */
-    0x00, 0x06,     /* Stateless reset token */
-    0x00, 0x10,       /* 16 bytes */
-    0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */
-    0x73, 0x74, 0x20, 0x6d, 0x61, 0x67, 0x69, 0x63,
-    0x00, 0x02,     /* initial_max_stream_id_bidi */
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, /* 32-bit, 4 */
-    0x00, 0x08,     /* initial_max_stream_id_uni */
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x02, /* 32-bit, 2 */
-    /*** End Transport Parameters ***/
-    0x12,     /* Stream frame with length */
-    0x03,       /* Stream ID = 3, Server-initiated HTTP control stream */
-    0x00,       /* Length = 0 */ /* TODO: Add SETTINGS frame */
+static const uint8_t fake_client_initial_packet_fixed_dcid[] = {
+    0x6d, 0x63, 0x61, 0x73, /* "mcast-quic-recv\0" */
+    0x74, 0x2d, 0x71, 0x75,
+    0x69, 0x63, 0x2d, 0x72,
+    0x65, 0x63, 0x76, 0x00,
 };
 
-#define LENGTH_SERVER_HANDSHAKE_PACKET sizeof(fake_server_handshake_packet)
+#define MIN_LENGTH_INITIAL_PAYLOAD 1200
 
-static const uint8_t fake_client_stream_4_packet[] = {
-    0x1f, /* Short header | ConnID present | Key Phase 0 | PktNum 4 octets*/
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x01, /* connection id = 1 */
-    0x02, /* Packet number = 2 */
-    0x12, /* Stream frame with length */
-    0x04,   /* Stream ID = 4 */
-    0x13,   /* Length = 19 */
-    0x10, 0x00, 0x00, /* Length 16, data, no flags */
+static const uint8_t fake_server_handshake_packet_fixed_scid[] = {
+    0x10,                   /* Source Connection ID Length = 16 */
+    0x6d, 0x63, 0x61, 0x73, /* "mcast-quic-serv\0" */
+    0x74, 0x2d, 0x71, 0x75,
+    0x69, 0x63, 0x2d, 0x73,
+    0x65, 0x72, 0x76, 0x00,
+};
+
+static const uint8_t fake_client_stream_0_payload[] = {
+    0x0a, 0x00, 0x10, /* Stream with length field,  Stream ID 0, Length 16 */
     0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */
     0x73, 0x74, 0x20, 0x6d, 0x61, 0x67, 0x69, 0x63
 };
 
-#define LENGTH_CLIENT_STREAM_4_PACKET sizeof(fake_client_stream_4_packet)
+#define LENGTH_CLIENT_STREAM_0_PAYLOAD sizeof(fake_client_stream_0_payload)
 
-size_t get_fake_client_initial_packet (uint64_t conn_id, uint32_t init_pkt_num,
-                                       uint32_t init_max_stream_data,
-                                       uint32_t init_max_data, uint8_t **pkt) {
-  uint8_t *buf = (uint8_t *) malloc (LENGTH_INITIAL_PACKET);
-  if (buf == NULL) {
+#define INCLUDE_HEADER 0x1
+#define IGNORE_ZERO_VALUE 0x2
+
+size_t _bytes_required (int64_t param, int flags) {
+  size_t rv = 0;
+  if ((param < 0) || ((param == 0) && (flags & IGNORE_ZERO_VALUE))) {
     return 0;
+  } else if (param <= 255) {
+    rv = 1;
+  } else if (param <= 65535) {
+    rv = 2;
+  } else if (param <= 16777215) {
+    rv = 3;
+  } else if (param <= 4294967295) {
+    rv = 4;
+  } else if (param <= 1099511627775) {
+    rv = 5;
+  } else if (param <= 281474976710655) {
+    rv = 6;
+  } else if (param <= 72057594037928935) {
+    rv = 7;
+  } else {
+    rv = 8;
   }
-
-  memcpy (buf, fake_client_initial_packet, LENGTH_INITIAL_PACKET);
-
-  put_uint64_in_buf (buf + 1, conn_id);
-  put_uint32_in_buf (buf + 13, init_pkt_num);
-  put_uint32_in_buf (buf + 30, init_max_stream_data);
-  put_uint32_in_buf (buf + 38, init_max_data);
-
-  *pkt = buf;
-  return LENGTH_INITIAL_PACKET;
+  if (flags & INCLUDE_HEADER) {
+    rv += 4;
+  }
+  return rv;
 }
 
-size_t get_fake_server_handshake_packet (uint64_t conn_id, uint32_t pkt_num,
-                                         uint32_t init_max_stream_data,
-                                         uint32_t init_max_data, uint8_t **pkt) {
-  uint8_t *buf = (uint8_t *) malloc (LENGTH_SERVER_HANDSHAKE_PACKET);
-  if (buf == NULL) {
-    return 0;
-  }
-
-  memcpy (buf, fake_server_handshake_packet, LENGTH_SERVER_HANDSHAKE_PACKET);
-
-  put_uint64_in_buf (buf + 1, conn_id);
-  put_uint32_in_buf (buf + 13, pkt_num);
-  put_uint32_in_buf (buf + 36, init_max_stream_data);
-  put_uint32_in_buf (buf + 44, init_max_data);
-
-  *pkt = buf;
-  return LENGTH_SERVER_HANDSHAKE_PACKET;
+size_t _transport_param_int_bytes_required (int64_t t_param) {
+  if (t_param <= 0) return 0;
+  return _make_varlen_int(NULL, t_param) + 4;
 }
 
-size_t get_fake_client_stream_4_packet (uint64_t conn_id, uint32_t pkt_num,
-                                        uint64_t max_data, uint8_t **pkt) {
-  size_t len = LENGTH_CLIENT_STREAM_4_PACKET + 1 +
-        _make_varlen_int(NULL, max_data);
-  uint8_t *buf = (uint8_t *) malloc (len);
+size_t _transport_params_bytes_required (nghq_transport_parameters *t_params,
+                                         bool server) {
+  size_t rv = _transport_param_int_bytes_required (t_params->idle_timeout);
+  rv += _transport_param_int_bytes_required (t_params->max_packet_size);
+  rv += _transport_param_int_bytes_required (t_params->initial_max_data);
+  if (server && t_params->stateless_reset_token.used) {
+      rv += 4 + NGHQ_STATELESS_RESET_LENGTH;
+  }
+  rv += _transport_param_int_bytes_required (
+      t_params->initial_max_stream_data_bidi_local);
+  rv += _transport_param_int_bytes_required (
+      t_params->initial_max_stream_data_bidi_remote);
+  rv += _transport_param_int_bytes_required (
+      t_params->initial_max_stream_data_uni);
+  rv += _transport_param_int_bytes_required (
+      t_params->initial_max_streams_bidi);
+  rv += _transport_param_int_bytes_required (t_params->initial_max_streams_uni);
+  rv += _transport_param_int_bytes_required (
+      t_params->active_connection_id_limit);
+  return rv;
+}
+
+/*
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |     Parameter Type (16)       |            Length (16)        |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                      Parameter Value (i)                    ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+size_t _write_transport_parameter_int(uint16_t param_type, int64_t param,
+                                      uint8_t* buf) {
+  if (param <= 0) { return 0; }
+  put_uint16_in_buf (buf, param_type);
+  /* Because the spec is deliberately difficult and mandates a varint here
+   * instead of just using the TLS field length...
+   */
+  size_t bytes_req = _make_varlen_int(buf + 4, param);
+  put_uint16_in_buf (buf + 2, (uint16_t) bytes_req);
+  return 4 + bytes_req;
+}
+
+/*
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |    Parameters Length (16)     |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |     Parameter Type (16)       |            Length (16)        |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                      Parameter Value (i)                    ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+size_t _write_transport_params (nghq_transport_parameters *t_params,
+                                uint8_t *buf, bool server) {
+  size_t rv = 2;
+  put_uint16_in_buf(buf, (uint16_t) _transport_params_bytes_required(t_params,
+                                                                     server));
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_IDLE_TIMEOUT, t_params->idle_timeout, buf + rv);
+  if (server && t_params->stateless_reset_token.used) {
+    put_uint16_in_buf (buf + rv, TRANSPORT_PARAM_STATELESS_RESET);
+    put_uint16_in_buf (buf + rv + 2, NGHQ_STATELESS_RESET_LENGTH);
+    memcpy(buf + 4, t_params->stateless_reset_token.token,
+           NGHQ_STATELESS_RESET_LENGTH);
+    rv += 4 + NGHQ_STATELESS_RESET_LENGTH;
+  }
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_MAX_PACKET_SIZE, t_params->max_packet_size,
+      buf + rv);
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_INITIAL_MAX_DATA, t_params->initial_max_data,
+      buf + rv);
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL,
+      t_params->initial_max_stream_data_bidi_local, buf + rv);
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE,
+      t_params->initial_max_stream_data_bidi_remote, buf + rv);
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_INITIAL_MAX_STREAM_DATA_UNI,
+      t_params->initial_max_stream_data_uni, buf + rv);
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_INITIAL_MAX_STREAMS_BIDI,
+      t_params->initial_max_streams_bidi, buf + rv);
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_INITIAL_MAX_STREAMS_UNI,
+      t_params->initial_max_streams_uni, buf + rv);
+  rv += _write_transport_parameter_int (
+      TRANSPORT_PARAM_ACTIVE_CONNECTION_ID_LIMIT,
+      t_params->active_connection_id_limit, buf + rv);
+  return rv;
+}
+
+/* +-+-+-+-+-+-+-+-+
+ * |1|1| 0 |R R|P P|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Version (32)                          |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | DCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |               Destination Connection ID (0..160)            ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | SCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                 Source Connection ID (0..160)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Token Length (i)                    ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                            Token (*)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                           Length (i)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                    Packet Number (8/16/24/32)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |         Payload (Transport Parameters in CRYPTO frame)      ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+size_t get_fake_client_initial_packet (uint8_t* sid, size_t sid_len,
+                                       uint32_t init_pkt_num,
+                                       nghq_transport_parameters *t_params,
+                                       uint8_t **pkt) {
+  /* Calculate the length of the initial packet */
+  size_t packet_len, offset, payload_len = 0, t_param_len = 0;
+  size_t header_len = 6; /* initial byte + version + sid len field */
+  header_len += 18; /* Fixed DCID of "mcast-quic-serv\0" + empty token len*/
+  header_len += sid_len;
+  header_len += _bytes_required ((int64_t) init_pkt_num, 0);
+  /*
+   * Still need to add the length field, but this is dependent on calculating
+   * the transport parameters length...
+   */
+
+  /* Allowed client parameters:
+   *  * idle_timeout
+   *  * max_packet_size
+   *  * initial_max_data
+   *  * initial_max_stream_data_bidi_local
+   *  * initial_max_stream_data_bidi_remote
+   *  * initial_max_stream_data_uni
+   *  * initial_max_streams_bidi
+   *  * initial_max_streams_uni
+   *  * ack_delay_exponent                    <-- Ignored
+   *  * max_ack_delay                         <-- Ignored
+   *  * disable_active_migration              <-- Ignored?
+   *  * active_connection_id_limit            <-- MUST be zero for mcast
+   */
+  t_param_len = _transport_params_bytes_required (t_params, false);
+  /*
+   * 4 bytes for CRYPTO frame type (0x06) and offset field (0) and the transport
+   * parameter structure length (2 bytes).
+   */
+  payload_len = t_param_len + 4 + _make_varlen_int(NULL, (uint64_t) t_param_len);
+
+  if (payload_len < MIN_LENGTH_INITIAL_PAYLOAD) {
+    payload_len = MIN_LENGTH_INITIAL_PAYLOAD;
+  }
+  header_len += _make_varlen_int(NULL, (uint64_t) payload_len +
+                                 _bytes_required ((int64_t) init_pkt_num, 0));
+  packet_len = header_len + payload_len;
+  uint8_t *buf = (uint8_t *) malloc (packet_len);
+  if (buf == NULL) {
+    return 0;
+  }
+  memset(buf, 0, packet_len);
+
+  buf[0] = 0xC0 + (uint8_t)(_bytes_required ((int64_t) init_pkt_num, 0) - 1);
+  buf[1] = 0xff; buf[2] = 0x00; buf[3] = 0x00; buf[4] = 0x16; /* draft-22 */
+  offset = 5;
+  buf[offset++] = (uint8_t) sizeof(fake_client_initial_packet_fixed_dcid);
+  memcpy(buf + offset, fake_client_initial_packet_fixed_dcid,
+         sizeof(fake_client_initial_packet_fixed_dcid));
+  offset += sizeof(fake_client_initial_packet_fixed_dcid);
+  buf[offset++] = (uint8_t) sid_len;
+  memcpy(buf + offset, sid, sid_len);
+  offset += sid_len;
+  buf[offset++] = 0; /* Empty token length */
+  offset += _make_varlen_int(buf + offset, (uint64_t) payload_len +
+                             _bytes_required ((int64_t) init_pkt_num, 0));
+  switch(_bytes_required ((int64_t) init_pkt_num, 0)) {
+    case 1:
+      buf[offset++] = (uint8_t) init_pkt_num;
+      break;
+    case 3:
+      buf[offset++] = (htonl((int) init_pkt_num) >> 16);
+      // @suppress("No break at end of case")
+    case 2:
+      put_uint16_in_buf (buf + offset, (uint16_t) init_pkt_num);
+      offset += 2;
+      break;
+    case 4:
+      put_uint32_in_buf (buf + offset, init_pkt_num);
+      offset += 4;
+      break;
+    default:
+      /* PANIC! */
+      abort();
+  }
+
+  offset += _make_varlen_int (buf + offset, 0x06ULL);
+  buf[offset++] = 0; /* Offset... */
+  offset += _make_varlen_int (buf + offset, t_param_len + 2);
+  offset += _write_transport_params (t_params, buf + offset, false);
+
+  *pkt = buf;
+  return packet_len;
+}
+
+/*
+ * +-+-+-+-+-+-+-+-+
+ * |1|1| 0 |R R|P P|  INITIAL
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Version (32)                          |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | DCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |               Destination Connection ID (0..160)            ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | SCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                 Source Connection ID (0..160)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Token Length (i)                    ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                            Token (*)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                           Length (i)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                    Packet Number (8/16/24/32)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |      Payload (20 bytes of PADDING to keep ngtcp2 happy)     ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+size_t get_fake_server_initial_packet (uint8_t* sid, size_t sid_len,
+                                       uint32_t pkt_num,
+                                       nghq_transport_parameters *t_params,
+                                       uint8_t **pkt) {
+  size_t packet_len, offset, payload_len = 0;
+    size_t header_len = 6; /* initial byte + version + sid len field */
+    header_len += 18; /* Fixed SCID of "mcast-quic-serv\0" + empty token len*/
+    header_len += sid_len;
+    header_len += _bytes_required ((int64_t) pkt_num, 0);
+
+    /* 20 byte PADDING payload */
+    payload_len = 20;
+
+    header_len += _make_varlen_int(NULL, (uint64_t) payload_len +
+                                   _bytes_required ((int64_t) pkt_num, 0));
+    packet_len = header_len + payload_len;
+    uint8_t *buf = (uint8_t *) malloc (packet_len);
+    if (buf == NULL) {
+      return 0;
+    }
+    memset(buf, 0, packet_len);
+
+    buf[0] = 0xC0 + (uint8_t)(_bytes_required ((int64_t) pkt_num, 0) - 1);
+    buf[1] = 0xff; buf[2] = 0x00; buf[3] = 0x00; buf[4] = 0x16; /* draft-22 */
+    offset = 5;
+    buf[offset++] = (uint8_t) sid_len;
+    memcpy(buf + offset, sid, sid_len);
+    offset += sid_len;
+    memcpy(buf + offset, fake_server_handshake_packet_fixed_scid,
+             sizeof(fake_server_handshake_packet_fixed_scid));
+    offset += sizeof(fake_server_handshake_packet_fixed_scid);
+    buf[offset++] = 0; /* Empty token length */
+    offset += _make_varlen_int(buf + offset, (uint64_t) payload_len +
+                               _bytes_required ((int64_t) pkt_num, 0));
+    switch(_bytes_required ((int64_t) pkt_num, 0)) {
+      case 1:
+        buf[offset++] = (uint8_t) pkt_num;
+        break;
+      case 3:
+        buf[offset++] = (htonl((int) pkt_num) >> 16);
+        /* @suppress("No break at end of case") */
+      case 2:
+        put_uint16_in_buf (buf + offset, (uint16_t) pkt_num);
+        offset += 2;
+        break;
+      case 4:
+        put_uint32_in_buf (buf + offset, pkt_num);
+        offset += 4;
+        break;
+      default:
+        /* PANIC! */
+        abort();
+    }
+
+    memset (buf + offset, 0, 20);
+
+    *pkt = buf;
+    return packet_len;
+}
+
+/*
+ * +-+-+-+-+-+-+-+-+
+ * |1|1| 2 |R R|P P|  HANDSHAKE
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Version (32)                          |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | DCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |               Destination Connection ID (0..160)            ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | SCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                 Source Connection ID (0..160)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                           Length (i)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                    Packet Number (8/16/24/32)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |         Payload (Transport Parameters in CRYPTO frame)      ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+size_t get_fake_server_handshake_packet (uint8_t* sid, size_t sid_len,
+                                             uint32_t pkt_num,
+                                             nghq_transport_parameters *t_params,
+                                             uint8_t **pkt) {
+  /* TODO: Might have to add a server initial packet to this ... */
+  size_t packet_len, offset, payload_len = 0, t_param_len, header_len = 6; /* initial byte + version + dcid len field */
+  header_len += sid_len;
+  header_len += 17; /* Fixed SCID of "mcast-quic-serv\0"*/
+  header_len += _bytes_required ((int64_t) pkt_num, 0);
+
+  /* Allowed client parameters:
+   *  * original_connection_id                <-- Ignored?
+   *  * idle_timeout
+   *  * stateless_reset_token                 <-- Ignored?
+   *  * max_packet_size
+   *  * initial_max_data
+   *  * initial_max_stream_data_bidi_local
+   *  * initial_max_stream_data_bidi_remote
+   *  * initial_max_stream_data_uni
+   *  * initial_max_streams_bidi
+   *  * initial_max_streams_uni
+   *  * ack_delay_exponent                    <-- Ignored
+   *  * max_ack_delay                         <-- Ignored
+   *  * disable_active_migration              <-- Ignored?
+   *  * preferred_address                     <-- Ignored
+   *  * active_connection_id_limit            <-- MUST be zero for mcast
+   */
+  t_param_len = _transport_params_bytes_required (t_params, true);
+  /*
+   * 4 bytes for CRYPTO frame type (0x06), offset and the transport parameter
+   * structure length (2 bytes).
+   */
+  payload_len = t_param_len + 4 + _make_varlen_int(NULL, (uint64_t) t_param_len);
+
+  packet_len = payload_len + header_len;
+  packet_len += _make_varlen_int(NULL, (uint64_t) payload_len);
+  //packet_len += 20; /* PADDING for INITIAL */
+  uint8_t *buf = (uint8_t *) malloc (packet_len);
   if (buf == NULL) {
     return 0;
   }
 
-  memcpy (buf, fake_client_stream_4_packet, LENGTH_CLIENT_STREAM_4_PACKET);
+  offset = 0;
+  buf[offset] = 0xE0 + (uint8_t)(_bytes_required ((int64_t) pkt_num, 0) - 1);
+  buf[offset+1] = 0xff; buf[offset+2] = 0x00; buf[offset+3] = 0x00;
+  buf[offset+4] = 0x16; /* draft-22 */
+  offset += 5;
+  buf[offset++] = (uint8_t) sid_len;
+  memcpy(buf + offset, sid, sid_len);
+  offset += sid_len;
+  memcpy(buf + offset, fake_server_handshake_packet_fixed_scid, 17);
+  offset += 17;
+  offset += _make_varlen_int(buf + offset, (uint64_t) payload_len +
+                             _bytes_required ((int64_t) pkt_num, 0));
+  switch(_bytes_required ((int64_t) pkt_num, 0)) {
+    case 1:
+      buf[offset++] = (uint8_t) pkt_num;
+      break;
+    case 3:
+      buf[offset++] = (htonl((int) pkt_num) >> 16);
+      /* @suppress("No break at end of case") */
+    case 2:
+      put_uint16_in_buf (buf + offset, (uint16_t) pkt_num);
+      offset += 2;
+      break;
+    case 4:
+      put_uint32_in_buf (buf + offset, pkt_num);
+      offset += 4;
+      break;
+    default:
+      /* PANIC! */
+      abort();
+  }
 
-  put_uint64_in_buf (buf + 1, conn_id);
-  buf[9] = pkt_num & 0xff;
-
-  buf[LENGTH_CLIENT_STREAM_4_PACKET] = 0x04; /* MAX_DATA frame */
-  _make_varlen_int(buf + LENGTH_CLIENT_STREAM_4_PACKET + 1, max_data);
+  offset += _make_varlen_int (buf + offset, 0x06ULL);
+  buf[offset++] = 0; /* Offset... */
+  offset += _make_varlen_int (buf + offset, t_param_len + 2);
+  offset += _write_transport_params (t_params, buf + offset, false);
 
   *pkt = buf;
-  return len;
+  return packet_len;
+}
+
+/*
+ *  0                   1                   2                   3
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+
+ * |0|1|S|R|R|K|P P|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                Destination Connection ID (0..160)           ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                   Packet Number (8/16/24/32)                ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                   Stream frame (0x08 - 0x0f)                ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Stream ID (0)                       ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         [Offset (0)]                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         [Length (16)]                       ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                Stream Data ("quic-mcast magic")             ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+size_t get_fake_client_stream_0_packet (uint32_t pkt_num, uint8_t **pkt) {
+  size_t offset = _bytes_required ((int64_t) pkt_num, false);
+  size_t dcid_len = sizeof(fake_server_handshake_scid);
+  size_t length = 1 + dcid_len + offset + LENGTH_CLIENT_STREAM_0_PAYLOAD;
+
+  uint8_t *buf = (uint8_t *) malloc (length);
+  if (buf == NULL) {
+    return 0;
+  }
+
+  memcpy(buf + 1, fake_server_handshake_scid, dcid_len);
+  switch (offset) {
+    case 1:
+      buf[0] = 0x40;
+      buf[dcid_len + 1] = (uint8_t) pkt_num;
+      break;
+    case 2:
+      buf[0] = 0x41;
+      put_uint16_in_buf (buf + dcid_len + 1, (uint16_t) pkt_num);
+      break;
+    case 3:
+      buf[0] = 0x42;
+      buf[dcid_len + 1] = (htonl((int) pkt_num) >> 16);
+      put_uint16_in_buf (buf + dcid_len + 2, (uint16_t) pkt_num);
+      break;
+    case 4:
+      buf[0] = 0x43;
+      put_uint32_in_buf (buf + dcid_len + 1, pkt_num);
+      break;
+    default:
+      /* PANIC! */
+      abort();
+  }
+  memcpy(buf + dcid_len + offset + 1, fake_client_stream_0_payload,
+         LENGTH_CLIENT_STREAM_0_PAYLOAD);
+
+  *pkt = buf;
+
+  return length;
 }

@@ -30,10 +30,10 @@
 extern "C" {
 #endif
 
+#include <limits.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stddef.h>
-#include <sys/types.h>
 
 /*
  * Type declarations
@@ -103,8 +103,8 @@ typedef enum {
 } nghq_headers_type;
 
 typedef struct {
-  int32_t header_table_size;
-  int32_t max_header_list_size;
+  uint64_t max_header_list_size;
+  uint64_t number_of_placeholders;
 } nghq_settings;
 
 typedef enum {
@@ -118,25 +118,31 @@ typedef struct {
   uint32_t max_open_requests;
   uint32_t max_open_server_pushes;
 
-  uint16_t idle_timeout;
-  uint16_t max_packet_size;
+  int64_t idle_timeout;
+  int64_t max_packet_size;
   uint8_t ack_delay_exponent;
 
-  uint64_t init_conn_id;
+  uint8_t *session_id;
+  uint8_t session_id_len;
 
   uint32_t max_stream_data;
   uint64_t max_data;
+
+  uint8_t *destination_address;
+  size_t destination_address_len;
+  uint8_t *source_address;
+  size_t source_address_len;
 } nghq_transport_settings;
 
-#define NGHQ_SETTINGS_HEADER_TABLE_SIZE 0x0001
-#define NGHQ_SETTINGS_MAX_HEADER_LIST_SIZE 0x0006
+#define NGHQ_SETTINGS_MAX_HEADER_LIST_SIZE 0x6LL
+#define NGHQ_SETTINGS_NUM_PLACEHOLDERS 0x9LL
 /*
- * TODO: Sanitise these defaults - header table size MUST be 0 in draft-09, and
- * SETTINGS_MAX_HEADER_LIST_SIZE says to assume 16,384 octets until otherwise
- * specified by the server.
+ * TODO: Sanitise these defaults - SETTINGS_MAX_HEADER_LIST_SIZE specifies the
+ * default as "unlimited", but I can't find what that actually equates to on
+ * the wire. SETTINGS_NUM_PLACEHOLDERS specifies a default of 0.
  */
-#define NGHQ_SETTINGS_DEFAULT_HEADER_TABLE_SIZE 0
-#define NGHQ_SETTINGS_DEFAULT_MAX_HEADER_LIST_SIZE 16384
+#define NGHQ_SETTINGS_DEFAULT_MAX_HEADER_LIST_SIZE ULLONG_MAX
+#define NGHQ_SETTINGS_DEFAULT_NUM_PLACEHOLDERS 0
 
 typedef struct {
   uint8_t*        name;
@@ -401,18 +407,19 @@ typedef ssize_t (*nghq_recv_callback) (nghq_session *session,
  * @p encrypted_len. This should be decrypted into the buffer @p clear which has
  * a size of @p clear_len.
  *
- * @return The number of bytes that were written into @p clear. If the
- *    decryption operation fails for any reason, then this function should
- *    return NGHQ_CRYPTO_ERROR.
+ * The buffer at @p clear may be the same buffer as @p encrypted.
+ *
+ * @return NGHQ_OK on success. If the decryption operation fails due to a
+ *    failure in the TLS library, then this function should return
+ *    NGHQ_CRYPTO_ERROR. For any other errors, this callback should return
+ *    NGHQ_ERROR.
  */
-
-typedef ssize_t (*nghq_decrypt_callback) (nghq_session *session,
-                                          const uint8_t *encrypted,
-                                          size_t encrypted_len,
-                                          const uint8_t *nonce, size_t noncelen,
-                                          const uint8_t *ad, size_t adlen,
-                                          uint8_t *clear, size_t clear_len,
-                                          void *session_user_data);
+typedef int (*nghq_decrypt_callback) (nghq_session *session,
+                                      const uint8_t *encrypted,
+                                      size_t encrypted_len, const uint8_t *key,
+                                      const uint8_t *nonce, size_t noncelen,
+                                      const uint8_t *ad, size_t adlen,
+                                      uint8_t *clear, void *session_user_data);
 
 /**
  * @brief Encrypt an unprotected QUIC payload
@@ -425,18 +432,19 @@ typedef ssize_t (*nghq_decrypt_callback) (nghq_session *session,
  * @p clear_len. This should be decrypted into the buffer @p encrypted which has
  * a size of @p encrypted_len.
  *
- * @return The number of bytes that were written into @p encrypted_len. If the
- *    encryption operation fails for any reason, then this function should
- *    return NGHQ_CRYPTO_ERROR.
+ * The buffer at @p encrypted may be the same buffer as @p clear.
+ *
+ * @return NGHQ_OK on success. If the decryption operation fails due to a
+ *    failure in the TLS library, then this function should return
+ *    NGHQ_CRYPTO_ERROR. For any other errors, this callback should return
+ *    NGHQ_ERROR.
  */
-typedef ssize_t (*nghq_encrypt_callback) (nghq_session *session,
-                                          const uint8_t *clear,
-                                          size_t clear_len,
-                                          const uint8_t *nonce, size_t noncelen,
-                                          const uint8_t *ad, size_t adlen,
-                                          uint8_t *encrypted,
-                                          size_t encrypted_len,
-                                          void *session_user_data);
+typedef int (*nghq_encrypt_callback) (nghq_session *session,
+                                      const uint8_t *clear, size_t clear_len,
+                                      const uint8_t *nonce, size_t noncelen,
+                                      const uint8_t *ad, size_t adlen,
+                                      const uint8_t *key, uint8_t *encrypted,
+                                      void *session_user_data);
 
 /**
  * @brief Used to push completed QUIC packets to the socket

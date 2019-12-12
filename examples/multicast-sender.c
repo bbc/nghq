@@ -68,17 +68,22 @@
 //#define MAX_PAYLOAD_LEN              (MAX_PACKET_LEN-29)
 #define MAX_PAYLOAD_LEN       16384
 
+static const uint8_t _default_session_id[] = {
+    0x53, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x20, 0x49, 0x44 /* "Session ID" */
+};
+
 #define _STR(a) #a
 #define STR(a) _STR(a)
-#define DEFAULT_MCAST_GRP_V4  "232.0.0.1"
-#define DEFAULT_IFC_ADDR_V4   "127.0.0.1"
-#define DEFAULT_MCAST_GRP_V6  "ff3e::8000:1"
-#define DEFAULT_MCAST_PORT    2000
-#define DEFAULT_MCAST_TTL     1
-#define DEFAULT_CONNECTION_ID 1
-#define DEFAULT_AUTHORITY     "localhost"
-#define DEFAULT_PATH_PREFIX   "/"
-#define DEFAULT_URL_PREFIX    "https://" DEFAULT_AUTHORITY DEFAULT_PATH_PREFIX
+#define DEFAULT_MCAST_GRP_V4      "232.0.0.1"
+#define DEFAULT_IFC_ADDR_V4       "127.0.0.1"
+#define DEFAULT_MCAST_GRP_V6      "ff3e::8000:1"
+#define DEFAULT_MCAST_PORT        2000
+#define DEFAULT_MCAST_TTL         1
+#define DEFAULT_SESSION_ID        _default_session_id
+#define DEFAULT_SESSION_ID_LENGTH sizeof(_default_session_id)
+#define DEFAULT_AUTHORITY         "localhost"
+#define DEFAULT_PATH_PREFIX       "/"
+#define DEFAULT_URL_PREFIX        "https://" DEFAULT_AUTHORITY DEFAULT_PATH_PREFIX
 #if HAVE_OPENSSL
 #define DEFAULT_PRIVATE_KEY_FILE "sender.key"
 #define DEFAULT_KEY_ID           "sender.pem"
@@ -386,8 +391,6 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
                      sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]), 0,
                      (void*)promise_request_user_data);
 
-    ev_run(EV_DEFAULT_UC_ 0);
-
     free(path_str);
 #if HAVE_OPENSSL
     _free_digest((char*)digest_header.value);
@@ -557,28 +560,23 @@ static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
     return NGHQ_OK; // no more data - just do faked acks
 }
 
-static ssize_t decrypt_cb (nghq_session *session, const uint8_t *encrypted,
-                           size_t encrypted_len, const uint8_t *nonce,
-                           size_t noncelen, const uint8_t *ad, size_t adlen,
-                           uint8_t *clear, size_t clear_len,
-                           void *session_user_data)
+static int decrypt_cb (nghq_session *session, const uint8_t *encrypted,
+                       size_t encrypted_len, const uint8_t *key,
+                       const uint8_t *nonce, size_t noncelen, const uint8_t *ad,
+                       size_t adlen, uint8_t *clear, void *session_user_data)
 {
-    /* server_session *sdata = (server_session*)session_user_data; */
-    if (encrypted_len > clear_len) return NGHQ_CRYPTO_ERROR;
     memcpy(clear, encrypted, encrypted_len);
-    return encrypted_len;
+    return 0;
 }
 
-static ssize_t encrypt_cb (nghq_session *session, const uint8_t *clear,
-                           size_t clear_len, const uint8_t *nonce,
-                           size_t noncelen, const uint8_t *ad, size_t adlen,
-                           uint8_t *encrypted, size_t encrypted_len,
-                           void *session_user_data)
+static int encrypt_cb (nghq_session *session, const uint8_t *clear,
+                       size_t clear_len, const uint8_t *nonce,
+                       size_t noncelen, const uint8_t *ad, size_t adlen,
+                       const uint8_t *key, uint8_t *encrypted,
+                       void *session_user_data)
 {
-    /* server_session *sdata = (server_session*)session_user_data; */
-    if (clear_len > encrypted_len) return NGHQ_CRYPTO_ERROR;
     memcpy(encrypted, clear, clear_len);
-    return clear_len;
+    return 0;
 }
 
 static ssize_t send_cb (nghq_session *session, const uint8_t *data, size_t len,
@@ -725,8 +723,8 @@ static nghq_callbacks g_callbacks = {
 };
 
 static nghq_settings g_settings = {
-    NGHQ_SETTINGS_DEFAULT_HEADER_TABLE_SIZE,     /* header_table_size */
-    NGHQ_SETTINGS_DEFAULT_MAX_HEADER_LIST_SIZE,  /* max_header_list_size */
+    NGHQ_SETTINGS_DEFAULT_MAX_HEADER_LIST_SIZE,   /* max_header_list_size */
+    NGHQ_SETTINGS_DEFAULT_NUM_PLACEHOLDERS,       /* number_of_placeholders */
 };
 
 static nghq_transport_settings g_trans_settings = {
@@ -736,9 +734,13 @@ static nghq_transport_settings g_trans_settings = {
     60,                          /* idle_timeout (seconds) */
     MAX_PACKET_LEN,              /* max_packet_size */
     0,  /* use default */        /* ack_delay_exponent */
-    1,                           /* connection id */
+    NULL, 0,                     /* session_id and session_id_len */
     UINT32_C(2)*1024*1024*1024,  /* max_stream_data */
-    UINT64_MAX                   /* max_data */
+    4611686018427387903ULL,      /* max_data - 2^62 max value */
+    NULL,                        /* destination_address */
+    0,                           /* destination_address_len */
+    NULL,                        /* source_address */
+    0                            /* source_address_len */
 };
 
 static void recv_idle_cb (EV_P_ ev_idle *w, int revents)
@@ -917,7 +919,8 @@ int main(int argc, char *argv[])
     int usage = 0;
     int err_out = 0;
     int ttl = DEFAULT_MCAST_TTL;
-    g_trans_settings.init_conn_id = DEFAULT_CONNECTION_ID;
+    g_trans_settings.session_id = DEFAULT_SESSION_ID;
+    g_trans_settings.session_id_len = DEFAULT_SESSION_ID_LENGTH;
     unsigned short send_port = DEFAULT_MCAST_PORT;
     const char *mcast_grp = DEFAULT_MCAST_GRP_V4;
     const char *ifc_ip = DEFAULT_IFC_ADDR_V4;
@@ -953,8 +956,32 @@ int main(int argc, char *argv[])
             usage = 1;
             break;
         case 'i':
-            g_trans_settings.init_conn_id = atoi (optarg);
-            printf("Using connection ID = %" PRIu64 "\n", g_trans_settings.init_conn_id);
+        {
+                int i;
+                g_trans_settings.session_id_len = strnlen(optarg, 40) / 2;
+                g_trans_settings.session_id =
+                        (uint8_t *) malloc (g_trans_settings.session_id_len);
+                memset (g_trans_settings.session_id, 0,
+                        g_trans_settings.session_id_len);
+                for (i = 0; i < g_trans_settings.session_id_len; i++) {
+                    int j;
+                    for (j = 0; j < 2; j++) {
+                        if ((optarg[i+j] >= '0') && (optarg[i+j] <= '9')) {
+                            g_trans_settings.session_id[i] |=
+                                (j)?(optarg[i+j] - 48 << 4):(optarg[i+j] - 48);
+                        } else if ((optarg[i+j] >= 'A') && (optarg[i+j] <= 'F')) {
+                            g_trans_settings.session_id[i] |=
+                                (j)?(optarg[i+j] - 55 << 4):(optarg[i+j] - 55);
+                        } else if ((optarg[i+j] >= 'a') && (optarg[i+j] <= 'f')) {
+                            g_trans_settings.session_id[i] |=
+                                (j)?(optarg[i+j] - 87 << 4):(optarg[i+j] - 87);
+                        } else {
+                            fprintf(stderr, "Not a valid hex character %c\n",
+                                    optarg[i+j]);
+                        }
+                    }
+                }
+            }
             break;
         case 'p':
             send_port = atoi (optarg);
@@ -994,7 +1021,7 @@ int main(int argc, char *argv[])
 "Options:\n"
 "  --help          -h        Display this help text.\n"
 "  --port          -p <port> UDP port number to send to [default: " STR(DEFAULT_MCAST_PORT) "].\n"
-"  --connection-id -i <id>   The connection ID to expect [default: " STR(DEFAULT_CONNECTION_ID) "].\n"
+"  --connection-id -i <id>   The connection ID to expect [default: " STR(DEFAULT_SESSION_ID) "].\n"
 "  --ttl           -t <ttl>  The TTL to use for multicast [default: " STR(DEFAULT_MCAST_TTL) "].\n"
 "  --url-prefix    -u <url>  The URL prefix to transmit with the files [default: " DEFAULT_URL_PREFIX "].\n"
 "\n"

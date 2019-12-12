@@ -46,9 +46,9 @@ HPACK encoder and decoder from
 ## Getting Started
 
 **nghq** is currently designed to be built against a version of ngtcp2 that has
-quic-transport-draft-09 support. The branch on ngtcp2 is called [nghq-0.0.1-support](https://github.com/davidjwbbc/ngtcp2/tree/nghq-0.0.1-support).
+quic-transport-draft-22 support. The branch on ngtcp2 is called [nghq-0.1.0-support](https://github.com/samhurst/ngtcp2/tree/nghq-0.1.0-support).
 
-    $ git clone --depth 1 -b nghq-0.0.1-support https://github.com/davidjwbbc/ngtcp2.git
+    $ git clone --depth 1 -b nghq-0.1.0-support https://github.com/samhurst/ngtcp2.git
 
 In addition, the library also requires [nghttp2](https://nghttp2.org) version
 v1.11.0 or above.

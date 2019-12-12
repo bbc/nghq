@@ -85,7 +85,7 @@ typedef struct nghq_stream_frame {
 
 typedef struct {
   uint64_t      push_id;
-  uint64_t      stream_id;
+  int64_t       stream_id;
   nghq_io_buf*  send_buf;
   nghq_io_buf*  recv_buf;
   size_t        buf_idx;
@@ -104,11 +104,65 @@ typedef struct {
 #define STREAM_STARTED(x) (x & STREAM_FLAG_STARTED)
 #define STREAM_TRAILERS_PROMISED(x) (x & STREAM_FLAG_TRAILERS_PROMISED)
 
+typedef struct tls13_varlen_vector {
+  size_t size;
+  uint8_t *value;
+} tls13_varlen_vector;
+
+#define TRANSPORT_PARAM_ORIGINAL_CONNECTION_ID 0x0000
+#define TRANSPORT_PARAM_IDLE_TIMEOUT 0x0001
+#define TRANSPORT_PARAM_STATELESS_RESET 0x0002
+#define TRANSPORT_PARAM_MAX_PACKET_SIZE 0x0003
+#define TRANSPORT_PARAM_INITIAL_MAX_DATA 0x0004
+#define TRANSPORT_PARAM_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL 0x0005
+#define TRANSPORT_PARAM_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE 0x0006
+#define TRANSPORT_PARAM_INITIAL_MAX_STREAM_DATA_UNI 0x0007
+#define TRANSPORT_PARAM_INITIAL_MAX_STREAMS_BIDI 0x0008
+#define TRANSPORT_PARAM_INITIAL_MAX_STREAMS_UNI 0x0009
+#define TRANSPORT_PARAM_ACK_DELAY_EXPONENT 0x000a
+#define TRANSPORT_PARAM_MAX_ACK_DELAY 0x000b
+#define TRANSPORT_PARAM_DISABLE_MIGRATION 0x000c
+#define TRANSPORT_PARAM_PREFERRED_ADDRESS 0x000d
+#define TRANSPORT_PARAM_ACTIVE_CONNECTION_ID_LIMIT 0x000e
+
+#define NGHQ_STATELESS_RESET_LENGTH 16
+
+#define NGHQ_INIT_REQUEST_STREAM_ID 0
+
+typedef struct nghq_transport_parameters {
+  tls13_varlen_vector original_connection_id;
+  int64_t idle_timeout;
+  struct {
+    bool used;
+    uint8_t token[NGHQ_STATELESS_RESET_LENGTH];
+  } stateless_reset_token;
+  int64_t max_packet_size;
+  int64_t initial_max_data;
+  int64_t initial_max_stream_data_bidi_local;
+  int64_t initial_max_stream_data_bidi_remote;
+  int64_t initial_max_stream_data_uni;
+  int64_t initial_max_streams_bidi;
+  int64_t initial_max_streams_uni;
+  int64_t ack_delay_exponent;
+  int64_t max_ack_delay;
+  bool disable_active_migration;
+  struct {
+    uint8_t ipv4Address[4];
+    uint16_t ipv4Port;
+    uint8_t ipv6Address[16];
+    uint16_t ipv6Port;
+    tls13_varlen_vector connectionId;
+    uint8_t statelessResetToken[16];
+  } preferred_address;
+  int64_t active_connection_id_limit;
+} nghq_transport_parameters;
+
 struct nghq_session {
   /* ngtcp2 tracking */
   ngtcp2_conn*    ngtcp2_session;
 
-  uint64_t        connection_id;
+  uint8_t*        session_id;
+  size_t          session_id_len;
 
   /* The highest stream IDs for both client requests and server pushes */
   uint64_t        highest_bidi_stream_id;
@@ -138,6 +192,7 @@ struct nghq_session {
   nghq_callbacks  callbacks;
   nghq_settings   settings;
   nghq_transport_settings transport_settings;
+  nghq_transport_parameters t_params;
 
   /* Currently running transfers */
   nghq_map_ctx *  transfers;
@@ -154,6 +209,8 @@ struct nghq_session {
   void*         conn_loss_timer;
   ngtcp2_tstamp conn_ack_tstamp;
   void*         conn_ack_timer;
+
+  ngtcp2_path   tcp2_path;
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
@@ -178,9 +235,6 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
 
 int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id);
 
-int nghq_mcast_swallow (nghq_session* session, const ngtcp2_pkt_hd *hd,
-                        const ngtcp2_frame *fr);
-
 void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd);
 
 nghq_stream *nghq_stream_new (uint64_t stream_id);
@@ -190,7 +244,7 @@ nghq_stream *nghq_req_stream_new(nghq_session* session);
 #define NGHQ_MULTICAST_MAX_UNI_STREAM_ID UINT64_C(0x3FFFFFFFFFFFFFFF)
 #define NGHQ_MULTICAST_MAX_PUSH_ID UINT64_C(0x3FFFFFFFFFFFFFFF)
 
-#define NGHQ_CONTROL_QUIC 0
+#define NGHQ_PUSH_PROMISE_STREAM 0
 #define NGHQ_CONTROL_CLIENT 2
 #define NGHQ_CONTROL_SERVER 3
 
