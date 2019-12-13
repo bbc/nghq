@@ -1643,10 +1643,7 @@ int _nghq_stream_headers_frame (nghq_session* session, nghq_stream* stream,
 static int _nghq_stream_priority_frame (nghq_session* session,
                                         nghq_stream* stream,
                                         nghq_stream_frame *frame) {
-  uint8_t flags;
-  uint64_t request_id;
-  uint64_t dependency_id;
-  uint8_t weight;
+  nghq_priority_frame prio;
 
   if ((stream->stream_id != NGHQ_CONTROL_CLIENT) &&
       (stream->stream_id != NGHQ_CONTROL_SERVER)) {
@@ -1659,8 +1656,7 @@ static int _nghq_stream_priority_frame (nghq_session* session,
     return NGHQ_HTTP_WRONG_STREAM;
   }
 
-  parse_priority_frame (frame->data, &flags, &request_id, &dependency_id,
-                              &weight);
+  parse_priority_frame (frame->data, &prio);
 
   DEBUG("TODO: Process priority frames\n");
 
@@ -1824,7 +1820,7 @@ static int _nghq_stream_max_push_id_frame (nghq_session* session,
 static int _nghq_stream_recv_data_at (nghq_stream* stream, size_t offset,
                                       nghq_io_buf *outbuf) {
   nghq_io_buf **pb = &stream->recv_buf;
-  if (stream->stream_id == 4 && *pb) {
+  if (stream->stream_id == NGHQ_PUSH_PROMISE_STREAM && *pb) {
     /* Always pass back the first buffer for stream 4 on or after offset */
     if ((*pb)->offset <= offset && (*pb)->offset + (*pb)->buf_len > offset) {
       /* requested offset is within the first buffer, trim response */
@@ -2038,9 +2034,9 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
 
   _nghq_insert_recv_stream_data(stream, data, datalen, off, end_of_stream);
 
-  // Add new frames
-  if (stream->stream_id == 4 && stream->recv_buf) {
-    // Always add frames for stream 4 from start of first available buffer
+  /* Add new frames */
+  if (stream->stream_id == NGHQ_PUSH_PROMISE_STREAM && stream->recv_buf) {
+    /* Always add frames for stream 0 from start of first available buffer */
     stream->next_recv_offset = stream->recv_buf->offset +
                                stream->recv_buf->buf_len -
                                stream->recv_buf->remaining;
@@ -2050,8 +2046,12 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
     if (SERVER_PUSH_STREAM(stream->stream_id) &&
         stream->next_recv_offset == 0) {
       size_t push_off = 0;
-      uint64_t push_id = _get_varlen_int(frame_data.buf, &push_off,
-                                         frame_data.buf_len);
+      if (_get_varlen_int (frame_data.buf, &push_off, frame_data.buf_len) != 1)
+      {
+        ERROR("Expected the beginning of a server push stream but didn't get one\n");
+        return NGHQ_ERROR;
+      }
+      _get_varlen_int(frame_data.buf + push_off, &push_off, frame_data.buf_len);
       if (push_off > frame_data.buf_len) {
         ERROR("Not enough data for push ID in stream %lu\n", stream->stream_id);
         return NGHQ_ERROR;

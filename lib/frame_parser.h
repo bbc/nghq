@@ -101,18 +101,13 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
  * the buffer after this frame has been parsed.
  *
  * @param buf The IO buffer to look for the PRIORITY frame in
- * @param flags The flags set. Can have NGHQ_SETTINGS_FLAG_PUSH_PRIORITY,
- *    NGHQ_SETTINGS_FLAG_PUSH_DEPENDENT and NGHQ_SETTINGS_FLAG_EXCLUSIVE set.
- * @param request_id The prioritised request's Stream ID
- * @param dependency_id The dependent request's stream ID
- * @param weight The priority weight for the given stream
+ * @param prio_frame The structure to contain the contents of the PRIORITY frame
  *
- * @return NGHQ_OK, unless no PRIORITY frame was found at @p buf, then
- *    NGHQ_ERROR
+ * @return NGHQ_OK, NGHQ_ERROR if no PRIORITY frame was found at @p buf, or
+ *    NGHQ_INTERNAL_ERROR if the buffer at @p prio_frame is NULL.
+ *
  */
-int parse_priority_frame (nghq_io_buf* buf, uint8_t* flags,
-                          uint64_t* request_id, uint64_t* dependency_id,
-                          uint8_t* weight);
+int parse_priority_frame (nghq_io_buf* buf, nghq_priority_frame* prio_frame);
 
 /**
  * @brief Parse a HTTP/QUIC CANCEL_PUSH frame

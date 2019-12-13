@@ -27,22 +27,43 @@
 #define LIB_FRAME_TYPES_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Using an enum would require casting every time, just use macros... */
-typedef uint8_t nghq_frame_type;
-#define NGHQ_FRAME_TYPE_DATA 0x00
-#define NGHQ_FRAME_TYPE_HEADERS 0x01
-#define NGHQ_FRAME_TYPE_PRIORITY 0x02
-#define NGHQ_FRAME_TYPE_CANCEL_PUSH 0x03
-#define NGHQ_FRAME_TYPE_SETTINGS 0x04
-#define NGHQ_FRAME_TYPE_PUSH_PROMISE 0x05
-#define NGHQ_FRAME_TYPE_GOAWAY 0x07
-#define NGHQ_FRAME_TYPE_MAX_PUSH_ID 0x0D
+typedef uint64_t nghq_frame_type;
+#define NGHQ_FRAME_TYPE_DATA 0x0LL
+#define NGHQ_FRAME_TYPE_HEADERS 0x1LL
+#define NGHQ_FRAME_TYPE_PRIORITY 0x2LL
+#define NGHQ_FRAME_TYPE_CANCEL_PUSH 0x3LL
+#define NGHQ_FRAME_TYPE_SETTINGS 0x4LL
+#define NGHQ_FRAME_TYPE_PUSH_PROMISE 0x5LL
+#define NGHQ_FRAME_TYPE_GOAWAY 0x7LL
+#define NGHQ_FRAME_TYPE_MAX_PUSH_ID 0xDLL
+#define NGHQ_FRAME_TYPE_DUPLICATE_PUSH 0xELL
 
 #define NGHQ_FRAME_TYPE_BAD 0xFF
 
 #define NGHQ_SETTINGS_FLAG_PUSH_PRIORITY 0x04
 #define NGHQ_SETTINGS_FLAG_PUSH_DEPENDENT 0x02
 #define NGHQ_SETTINGS_FLAG_EXCLUSIVE 0x01
+
+typedef enum {
+  nghq_elem_request_stream = 0x0,
+  nghq_elem_push_stream = 0x1,
+  nghq_elem_placeholder = 0x2,
+  nghq_elem_root = 0x3,
+  nghq_elem_MAX = nghq_elem_root
+} nghq_elem_type;
+
+typedef struct nghq_priority_frame {
+  nghq_elem_type prio_elem_type;
+  nghq_elem_type elem_dep_type;
+  bool exclusive;
+
+  uint64_t prio_elem_id;
+  uint64_t elem_dep_id;
+
+  uint8_t weight;
+} nghq_priority_frame;
 
 #endif /* LIB_FRAME_TYPES_H_ */

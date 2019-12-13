@@ -104,9 +104,7 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
  * The caller is responsible for freeing the allocated frame memory in @p frame.
  *
  * @param flags The flags to set on the PRIORTIY frame
- * @param request_id The prioritised request's Stream ID
- * @param dependency_id The dependent request's Stream ID
- * @param weight The priority weight for the given stream
+ * @param prio_frame The structure containing the contents for the frame
  * @param frame The buffer to return the packaged frame in
  * @param frame_len The length of @p frame
  *
@@ -114,8 +112,7 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
  * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
  *    allocated
  */
-int create_priority_frame(uint8_t flags, uint64_t request_id,
-                          uint64_t dependency_id, uint8_t weight,
+int create_priority_frame(uint8_t flags, nghq_priority_frame *prio_frame,
                           uint8_t** frame, size_t* frame_len);
 
 /**

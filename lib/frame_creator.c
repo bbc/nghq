@@ -38,28 +38,27 @@
  * too big for the frame, this changes the value of payload_len to say how much
  * data can fit into the frame. This function then returns the total frame size.
  */
-size_t _calculate_frame_size (size_t payload_len) {
-  size_t header_varlen_int_length = _make_varlen_int(NULL,
-                                                     (uint64_t) payload_len);
-
-  return header_varlen_int_length + 2 + payload_len;
+size_t _calculate_frame_size (uint64_t payload_len, nghq_frame_type type) {
+  return _make_varlen_int(NULL, payload_len) + _make_varlen_int(NULL, type)
+      + payload_len;
 }
 
 /*
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  *
  * Returns the length of the header (which should be sizeof(buf) - payload_len)
  */
 size_t _create_frame_header (size_t payload_len, nghq_frame_type type,
                            uint8_t flags, uint8_t* buf) {
-  size_t off = _make_varlen_int(buf, payload_len);
+  size_t off = _make_varlen_int(buf, type);
+  off += _make_varlen_int(buf+off, payload_len);
   assert(off > 0);
-  buf[off++] = type;
-  buf[off++] = flags;
   return off;
 }
 
@@ -77,7 +76,9 @@ void _create_frame (nghq_frame_type type, uint8_t flags, const uint8_t* payload,
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                         Body Block (*)                        |  DATA
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
@@ -90,7 +91,7 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
     return NGHQ_ERROR;
   }
 
-  *frame_len = _calculate_frame_size (block_to_write);
+  *frame_len = _calculate_frame_size (block_to_write, NGHQ_FRAME_TYPE_DATA);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -109,7 +110,9 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |                    Optional Push Stream Header                |
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
- * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                        Header Block (*)                       |  HEADERS
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
@@ -129,10 +132,16 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
   hdrs_compressed = nghq_deflate_hdr (ctx, hdrs, num_hdrs, &hdr_block,
                                       &block_to_write);
 
-  *frame_len = _calculate_frame_size (block_to_write);
+  *frame_len = _calculate_frame_size (block_to_write, NGHQ_FRAME_TYPE_HEADERS);
 
   if (push_id >= 0) {
-    push_stream_header_len = _make_varlen_int(NULL, (uint64_t) push_id);
+    /* Add extra byte for stream type of 0x01.
+     *
+     * TODO: Should we move the push header to something more generic? Is there
+     * anything guaranteeing that we will only be sending a push header infront
+     * of a HEADERS frame?
+     */
+    push_stream_header_len = _make_varlen_int(NULL, (uint64_t) push_id) + 1;
   }
 
   *frame = (uint8_t *) malloc((*frame_len) + push_stream_header_len);
@@ -141,7 +150,17 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
   }
 
   if (push_id >= 0) {
-    _make_varlen_int(*frame, (uint64_t) push_id);
+    /*
+     *  0                   1                   2                   3
+     *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                           0x01 (i)                          ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                          Push ID (i)                        ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     */
+    *frame[0] = 0x01;
+    _make_varlen_int(*frame + 1, (uint64_t) push_id);
   }
 
   _create_frame(NGHQ_FRAME_TYPE_HEADERS, 0, hdr_block, block_to_write,
@@ -158,7 +177,9 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                 Prioritised Request ID (i)                  ...  PRIORITY
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
@@ -167,19 +188,22 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
  * |   Weight (8)  |
  * +-+-+-+-+-+-+-+-+
  */
-int create_priority_frame(uint8_t flags, uint64_t request_id,
-                          uint64_t dependency_id, uint8_t weight,
+int create_priority_frame(uint8_t flags, nghq_priority_frame *prio_frame,
                           uint8_t** frame, size_t* frame_len) {
   size_t header_length, payload_length, off;
 
-  payload_length = _make_varlen_int(NULL, request_id) +
-      _make_varlen_int(NULL, dependency_id) + 1;
+  /* 2 bytes for the flags byte and the weight byte */
+  payload_length = 2 + _make_varlen_int(NULL, prio_frame->prio_elem_id);
+  if (prio_frame->elem_dep_type != nghq_elem_root) {
+    payload_length += _make_varlen_int(NULL, prio_frame->elem_dep_id);
+  }
   assert(payload_length > 2);
 
-  *frame_len = _calculate_frame_size(payload_length);
+  *frame_len = _calculate_frame_size(payload_length, NGHQ_FRAME_TYPE_PRIORITY);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
+    *frame_len = 0;
     return NGHQ_OUT_OF_MEMORY;
   }
 
@@ -189,9 +213,11 @@ int create_priority_frame(uint8_t flags, uint64_t request_id,
   assert ((header_length + payload_length) == *frame_len);
 
   off = header_length;
-  off += _make_varlen_int((*frame) + off, request_id);
-  off += _make_varlen_int((*frame) + off, dependency_id);
-  (*frame)[off] = weight;
+  off += _make_varlen_int((*frame) + off, prio_frame->prio_elem_id);
+  if (prio_frame->elem_dep_type != nghq_elem_root) {
+    off += _make_varlen_int((*frame) + off, prio_frame->elem_dep_id);
+  }
+  (*frame)[off] = prio_frame->weight;
 
   return NGHQ_OK;
 }
@@ -200,7 +226,9 @@ int create_priority_frame(uint8_t flags, uint64_t request_id,
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                          Push ID (i)                        ... CANCEL_PUSH
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
@@ -212,7 +240,8 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
   push_id_length = _make_varlen_int(NULL, push_id);
   assert(push_id_length > 0);
 
-  *frame_len = _calculate_frame_size(push_id_length);
+  *frame_len = _calculate_frame_size(push_id_length,
+                                     NGHQ_FRAME_TYPE_CANCEL_PUSH);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -231,7 +260,9 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |           Length (i)      ... |    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |         Identifier (16)       |            Length (i)       ...  SETTINGS
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
@@ -248,7 +279,9 @@ int create_settings_frame(nghq_settings* settings, uint8_t** frame,
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                          Push ID (i)                        ...  PUSH_
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  PROMISE
@@ -278,7 +311,8 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
 
   payload_length = block_to_write + push_id_length;
 
-  *frame_len = _calculate_frame_size (payload_length);
+  *frame_len = _calculate_frame_size (payload_length,
+                                      NGHQ_FRAME_TYPE_PUSH_PROMISE);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -305,7 +339,9 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                         Stream ID (i)                       ...  GOAWAY
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
@@ -317,7 +353,8 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
   last_stream_id_length = _make_varlen_int(NULL, last_stream_id);
   assert(last_stream_id_length > 0);
 
-  *frame_len = _calculate_frame_size(last_stream_id_length);
+  *frame_len = _calculate_frame_size(last_stream_id_length,
+                                     NGHQ_FRAME_TYPE_GOAWAY);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
@@ -336,7 +373,9 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |           Length (i)       ...|    Type (8)   |   Flags (8)   |  Frame HDR
+ * |                           Type (i)                          ...  Frame
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
+ * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                      Maximum Push ID (i)                    ... MAX_PUSH_ID
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
@@ -348,7 +387,8 @@ int create_max_push_id_frame(uint64_t max_push_id, uint8_t** frame,
   max_push_id_length = _make_varlen_int(NULL, max_push_id);
   assert(max_push_id_length > 0);
 
-  *frame_len = _calculate_frame_size(max_push_id_length);
+  *frame_len = _calculate_frame_size(max_push_id_length,
+                                     NGHQ_FRAME_TYPE_MAX_PUSH_ID);
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
