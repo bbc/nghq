@@ -41,7 +41,7 @@
 #include "nghq/nghq.h"
 #include "multicast_interfaces.h"
 
-static const uint8_t _default_session_id[] = {
+static uint8_t _default_session_id[] = {
     0x53, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x20, 0x49, 0x44 /* "Session ID" */
 };
 
@@ -238,7 +238,7 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
 
     printf("Received %zu bytes of body data (offset=%zu).\n", len, off);
     if (req->text_body) {
-        printf("Body:\n%.*s\n", len, data);
+        printf("Body:\n%.*s\n", (int) len, data);
     } else {
         printf("Body is binary, not displaying.\n");
     }
@@ -495,13 +495,13 @@ int main(int argc, char *argv[])
                     for (j = 0; j < 2; j++) {
                         if ((optarg[i+j] >= '0') && (optarg[i+j] <= '9')) {
                             g_trans_settings.session_id[i] |=
-                                (j)?(optarg[i+j] - 48 << 4):(optarg[i+j] - 48);
+                                (j)?((optarg[i+j] - 48) << 4):(optarg[i+j] - 48);
                         } else if ((optarg[i+j] >= 'A') && (optarg[i+j] <= 'F')) {
                             g_trans_settings.session_id[i] |=
-                                (j)?(optarg[i+j] - 55 << 4):(optarg[i+j] - 55);
+                                (j)?((optarg[i+j] - 55) << 4):(optarg[i+j] - 55);
                         } else if ((optarg[i+j] >= 'a') && (optarg[i+j] <= 'f')) {
                             g_trans_settings.session_id[i] |=
-                                (j)?(optarg[i+j] - 87 << 4):(optarg[i+j] - 87);
+                                (j)?((optarg[i+j] - 87) << 4):(optarg[i+j] - 87);
                         } else {
                             fprintf(stderr, "Not a valid hex character %c\n",
                                     optarg[i+j]);

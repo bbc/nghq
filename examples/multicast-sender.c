@@ -71,7 +71,7 @@
 //#define MAX_PAYLOAD_LEN              (MAX_PACKET_LEN-29)
 #define MAX_PAYLOAD_LEN       16384
 
-static const uint8_t _default_session_id[] = {
+static uint8_t _default_session_id[] = {
     0x53, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x20, 0x49, 0x44 /* "Session ID" */
 };
 
@@ -971,13 +971,13 @@ int main(int argc, char *argv[])
                     for (j = 0; j < 2; j++) {
                         if ((optarg[i+j] >= '0') && (optarg[i+j] <= '9')) {
                             g_trans_settings.session_id[i] |=
-                                (j)?(optarg[i+j] - 48 << 4):(optarg[i+j] - 48);
+                                (j)?((optarg[i+j] - 48) << 4):(optarg[i+j] - 48);
                         } else if ((optarg[i+j] >= 'A') && (optarg[i+j] <= 'F')) {
                             g_trans_settings.session_id[i] |=
-                                (j)?(optarg[i+j] - 55 << 4):(optarg[i+j] - 55);
+                                (j)?((optarg[i+j] - 55) << 4):(optarg[i+j] - 55);
                         } else if ((optarg[i+j] >= 'a') && (optarg[i+j] <= 'f')) {
                             g_trans_settings.session_id[i] |=
-                                (j)?(optarg[i+j] - 87 << 4):(optarg[i+j] - 87);
+                                (j)?((optarg[i+j] - 87) << 4):(optarg[i+j] - 87);
                         } else {
                             fprintf(stderr, "Not a valid hex character %c\n",
                                     optarg[i+j]);

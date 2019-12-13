@@ -1871,7 +1871,7 @@ static void _nghq_stream_recv_pop_data (nghq_stream* stream, size_t offset,
   nghq_io_buf **pb = &stream->recv_buf;
   while (*pb) {
     if ((*pb)->offset <= offset && (*pb)->offset + (*pb)->buf_len > offset) {
-      if ((*pb)->send_pos = (*pb)->buf + (offset - (*pb)->offset)) {
+      if ((*pb)->send_pos == (*pb)->buf + (offset - (*pb)->offset)) {
         (*pb)->send_pos += len;
         (*pb)->remaining -= len;
       } else if ((*pb)->send_pos + (*pb)->remaining ==
@@ -2524,14 +2524,14 @@ struct alpn_name {
 };
 END_PACKED_STRUCT(alpn_name)
 
-static const struct alpn_name * const _draft9_alpns[] = {
-        (const struct alpn_name *const)"\x06hqm-03",
+static const struct alpn_name * const _draft22_alpns[] = {
+        (const struct alpn_name *const)"\x06hqm-05",
         NULL};
 
 static const struct alpn_name * const *_get_alpn_protocols()
 {
-#if NGTCP2_PROTO_VER_MAX == NGTCP2_PROTO_VER_D9
-    return _draft9_alpns;
+#if NGTCP2_PROTO_VER_MAX == 0xff000016u
+    return _draft22_alpns;
 #else
     return NULL;
 #endif
