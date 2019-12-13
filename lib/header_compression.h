@@ -47,6 +47,7 @@ int nghq_init_hdr_compression_ctx(nghq_hdr_compression_ctx **ctx);
  *    should be fed back into this function when more HEADERS data has been
  *    received.
  * @return NGHQ_HDR_COMPRESS_FAILURE if decompression fails
+ * @return NGHQ_OUT_OF_MEMORY if function could not allocate returned headers
  * @return NGHQ_ERROR if @p ctx is not initialised
  */
 ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,

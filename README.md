@@ -32,16 +32,9 @@ client/server application and **nghq** can be found
 
 ## Caveats
 
-**NOTE: In its current form, nghq implements only the parts of the HTTP/QUIC specification required by [draft-pardue-quic-http-mcast-02](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-02)**.
+**NOTE: In its current form, nghq implements only the parts of the QUIC and HTTP3 specifications required by [draft-pardue-quic-http-mcast-05](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-05)**.
 
-In particular, it only supports [draft-ietf-quic-http-09](https://tools.ietf.org/html/draft-ietf-quic-http-09) 
-as draft-09 is the last to still use [HPACK](https://tools.ietf.org/html/rfc7541)
-for header compression. Later versions of quic-http mandate the use of
-[QPACK](https://github.com/quicwg/base-drafts/blob/master/draft-ietf-quic-qpack.md).
-However, there is currently no readily available QPACK encoder and decoder. 
-Until such time as this issue is resolved, this library relies on the legacy
-HPACK encoder and decoder from
-[nghttp2](https://nghttp2.org/documentation/tutorial-hpack.html).
+In particular, it only supports [draft-ietf-quic-http-22](https://tools.ietf.org/html/draft-ietf-quic-http-22).
 
 ## Getting Started
 
@@ -50,11 +43,10 @@ quic-transport-draft-22 support. The branch on ngtcp2 is called [nghq-0.1.0-supp
 
     $ git clone --depth 1 -b nghq-0.1.0-support https://github.com/samhurst/ngtcp2.git
 
-In addition, the library also requires [nghttp2](https://nghttp2.org) version
-v1.11.0 or above.
-
 If you wish to build and run the examples, you will also need
 [libev](http://software.schmorp.de/pkg/libev.html) version 4.0 or above.
+
+**nghq** uses the [ls-qpack](https://github.com/litespeedtech/ls-qpack) library to perform QPACK header compression and decompression routines. The ls-qpack library is included as a linked git submodule, which should be initialised and updated as part of the bootstrap script.
 
 The build system itself uses Automake. To build the software, do the following:
 

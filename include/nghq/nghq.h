@@ -832,6 +832,8 @@ extern int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
  * @return NGHQ_REQUEST_BLOCKED if sending more packets is blocked by flow
  *    control.
  * @return NGHQ_REQUEST_CLOSED if the request is closed
+ * @return NGHQ_ERROR if the session doesn't exist or another internal error
+ *    occurs.
  */
 extern ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
                                       size_t len, int final,

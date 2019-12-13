@@ -32,6 +32,11 @@ stamp-h1
 libtool
 
 #
+# Submodule build directory
+#
+ls-qpack-build/
+
+#
 # Logs
 #
 *.log

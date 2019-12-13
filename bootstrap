@@ -1,5 +1,12 @@
 #!/bin/sh
 
+if test ! -f ls-qpack/lsqpack.h;
+then
+    echo "+ Setting up ls-qpack submodule for QPACK"
+    git submodule init
+fi
+git submodule update
+
 cd `dirname "$0"`
 libtoolize --copy --force
 aclocal -I m4 --force

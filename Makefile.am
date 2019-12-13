@@ -26,3 +26,24 @@
 SUBDIRS = lib include/nghq tests examples
 
 ACLOCAL_AMFLAGS = -I m4
+
+# https://www.gnu.org/software/automake/manual/automake.html#Sources
+BUILT_SOURCES = lsqpack
+lsqpack:
+	[ -d ls-qpack-build ] || mkdir ls-qpack-build; \
+	cd ls-qpack-build; \
+	cmake -DBUILD_SHARED_LIBS=ON -E env CFLAGS=\"$(CFLAGS)\" \
+			LDFLAGS=\"$(LDFLAGS)\" ${abs_top_srcdir}/ls-qpack; \
+	make
+
+install-exec-hook:
+	cp ${top_builddir}/ls-qpack-build/libls-qpack.so* $(DESTDIR)$(libdir)/
+
+clean-local:
+	cd ls-qpack-build; \
+	make clean
+
+distclean-local:
+	rm -rf ls-qpack-build
+
+.PHONY: lsqpack

@@ -55,8 +55,8 @@ HDRS = \
 	io_buf.h \
 	util.h
 
-libnghq_la_CFLAGS = -I$(top_builddir)/include -I$(top_srcdir)/include $(NGTCP2_CFLAGS) $(NGHTTP2_CFLAGS)
-libnghq_la_LIBADD = $(NGTCP2_LIBS) $(NGHTTP2_LIBS)
+libnghq_la_CFLAGS = -I$(top_srcdir)/include $(NGTCP2_CFLAGS) -I$(top_srcdir)/ls-qpack
+libnghq_la_LIBADD = $(NGTCP2_LIBS) -L$(top_builddir)/ls-qpack-build -lls-qpack
 libnghq_la_SOURCES = $(HDRS) $(OBJECTS)
 nodist_libnghq_la_SOURCES = git-version.h
 libnghq_la_LDFLAGS = -no-undefined \

@@ -63,9 +63,6 @@ AS_IF([test "x$ac_cv_prog_cc_c99" = "no"], [
 
 AX_PACKED_STRUCT
 
-# Check for required nghttp2 for HPACK
-PKG_CHECK_MODULES([NGHTTP2], [libnghttp2])
-
 # Check for required ngtcp2
 PKG_CHECK_MODULES([NGTCP2], [libngtcp2])
 
