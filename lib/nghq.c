@@ -1597,6 +1597,7 @@ int _nghq_stream_headers_frame (nghq_session* session, nghq_stream* stream,
       break;
     case STATE_BODY:
       stream->recv_state = STATE_TRAILERS;
+      /* @suppress("No break at end of case") */
     case STATE_TRAILERS:
       break;
     default:
@@ -1606,7 +1607,9 @@ int _nghq_stream_headers_frame (nghq_session* session, nghq_stream* stream,
   }
   to_process = parse_headers_frame (session->hdr_ctx, frame->data, &hdrs,
                                     &num_hdrs);
-
+  if (to_process < 0) {
+    return to_process;
+  }
   if (hdrs != NULL) {
     int rv;
     uint8_t flags = 0;
@@ -1731,6 +1734,9 @@ static int _nghq_stream_push_promise_frame (nghq_session* session,
                                          frame->data, &push_id,
                                          &hdrs, &num_hdrs);
 
+  if (to_process < 0) {
+    return to_process;
+  }
   if (push_id > session->max_push_promise) {
     return NGHQ_HTTP_MALFORMED_FRAME;
   }
@@ -1782,6 +1788,9 @@ static int _nghq_stream_push_promise_frame (nghq_session* session,
       return rv;
     }
   }
+
+  DEBUG ("Received push promise on stream ID %lu with push ID %lu\n",
+         stream->stream_id, push_id);
 
   return NGHQ_OK;
 }
@@ -1921,6 +1930,7 @@ static int _nghq_stream_frame_add (nghq_stream* stream,
     uint8_t *bodydata = NULL;
     size_t datalen = 0;
     ssize_t to_process = parse_data_frame (data, &bodydata, &datalen);
+    if (to_process < 0) return to_process;
     size_t hdr_len = frame_size - datalen;
     f->end_header_offset = offset + hdr_len;
     f->data_offset_adjust = f->end_header_offset - stream->data_frames_total;
@@ -1999,7 +2009,7 @@ static int _frame_contains_stream_range (nghq_stream_frame *frame, size_t offset
   size_t end_offset = offset + datalen;
   if (frame->data->offset < end_offset &&
       frame->data->offset + frame->data->buf_len > offset) {
-    // frame overlaps data, find first offset within frame
+    /* frame overlaps data, find first offset within frame */
     if (offset > frame->data->offset) {
       *frame_data_offset = offset;
     } else {

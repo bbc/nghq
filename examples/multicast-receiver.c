@@ -238,7 +238,7 @@ static int on_data_recv_cb (nghq_session *session, uint8_t flags,
 
     printf("Received %zu bytes of body data (offset=%zu).\n", len, off);
     if (req->text_body) {
-        printf("Body:\n%s\n", data);
+        printf("Body:\n%.*s\n", len, data);
     } else {
         printf("Body is binary, not displaying.\n");
     }
@@ -426,7 +426,7 @@ int main(int argc, char *argv[])
     static const char short_opts[] = "d::hi:p:r::";
     static const struct option long_opts[] = {
         {"help", 0, NULL, 'h'},
-        {"connection-id", 1, NULL, 'i'},
+        {"session-id", 1, NULL, 'i'},
         {"port", 1, NULL, 'p'},
         {"reorder-every", 2, NULL, 'r'},
         {"drop-every", 2, NULL, 'd'},
@@ -547,7 +547,7 @@ int main(int argc, char *argv[])
 "Options:\n"
 "  --help          -h         Display this help text.\n"
 "  --port          -p <port>  UDP port number to receive on [default: " STR(DEFAULT_MCAST_PORT) "].\n"
-"  --connection-id -i <id>    The connection ID to expect [default: " STR(DEFAULT_CONNECTION_ID) "].\n"
+"  --session-id    -i <id>    The session ID to expect [default: " STR(DEFAULT_SESSION_ID) "].\n"
 "  --drop-every    -d [<n>]   Drop every nth packet (n=" STR(OPT_ARG_DEFAULT_DROP_PACKET) " if not given)\n"
 "                             [default: no dropped packets].\n"
 "  --reorder-every -r [<n>]   Reorder every nth packet (n=" STR(OPT_ARG_DEFAULT_FAKE_REORDER) " if not given)\n"

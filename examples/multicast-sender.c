@@ -62,7 +62,10 @@
 #define PATH_MAX_LEN          4096
 #define DATE_MAX_LEN          32
 
-#define MAX_PACKET_LEN        1479
+/*
+ * Worst case QUIC + STREAM + Stream Type + Push Stream + H3 header = ~80 bytes
+ */
+#define MAX_PACKET_LEN        1420
 /* MAX_PAYLOAD_LEN - maximum block size used in stream data */
 /*** ngtcp2 bug means that payload must fit in a packet. ***/
 //#define MAX_PAYLOAD_LEN              (MAX_PACKET_LEN-29)
@@ -908,7 +911,7 @@ int main(int argc, char *argv[])
     static const char short_opts[] = "hi:p:t:u:";
     static const struct option long_opts[] = {
         {"help", 0, NULL, 'h'},
-        {"connection-id", 1, NULL, 'i'},
+        {"session-id", 1, NULL, 'i'},
         {"port", 1, NULL, 'p'},
         {"ttl", 1, NULL, 't'},
         {"url-prefix", 1, NULL, 'u'},
@@ -1021,7 +1024,7 @@ int main(int argc, char *argv[])
 "Options:\n"
 "  --help          -h        Display this help text.\n"
 "  --port          -p <port> UDP port number to send to [default: " STR(DEFAULT_MCAST_PORT) "].\n"
-"  --connection-id -i <id>   The connection ID to expect [default: " STR(DEFAULT_SESSION_ID) "].\n"
+"  --session-id    -i <id>   The session ID to send [default: " STR(DEFAULT_SESSION_ID) "].\n"
 "  --ttl           -t <ttl>  The TTL to use for multicast [default: " STR(DEFAULT_MCAST_TTL) "].\n"
 "  --url-prefix    -u <url>  The URL prefix to transmit with the files [default: " DEFAULT_URL_PREFIX "].\n"
 "\n"
@@ -1117,6 +1120,11 @@ int main(int argc, char *argv[])
     g_server_session.session = nghq_session_server_new (&g_callbacks,
                                         &g_settings, &g_trans_settings,
                                         &g_server_session);
+
+    if (g_server_session.session == NULL) {
+        fprintf(stderr, "Failed to get nghq instance!\n");
+        return -1;
+    }
 
     ev_io_start (EV_DEFAULT_UC_ &g_server_session.socket_writable);
 
