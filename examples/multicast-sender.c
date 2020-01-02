@@ -959,32 +959,8 @@ int main(int argc, char *argv[])
             usage = 1;
             break;
         case 'i':
-        {
-                int i;
-                g_trans_settings.session_id_len = strnlen(optarg, 40) / 2;
-                g_trans_settings.session_id =
-                        (uint8_t *) malloc (g_trans_settings.session_id_len);
-                memset (g_trans_settings.session_id, 0,
-                        g_trans_settings.session_id_len);
-                for (i = 0; i < g_trans_settings.session_id_len; i++) {
-                    int j;
-                    for (j = 0; j < 2; j++) {
-                        if ((optarg[i+j] >= '0') && (optarg[i+j] <= '9')) {
-                            g_trans_settings.session_id[i] |=
-                                (j)?((optarg[i+j] - 48) << 4):(optarg[i+j] - 48);
-                        } else if ((optarg[i+j] >= 'A') && (optarg[i+j] <= 'F')) {
-                            g_trans_settings.session_id[i] |=
-                                (j)?((optarg[i+j] - 55) << 4):(optarg[i+j] - 55);
-                        } else if ((optarg[i+j] >= 'a') && (optarg[i+j] <= 'f')) {
-                            g_trans_settings.session_id[i] |=
-                                (j)?((optarg[i+j] - 87) << 4):(optarg[i+j] - 87);
-                        } else {
-                            fprintf(stderr, "Not a valid hex character %c\n",
-                                    optarg[i+j]);
-                        }
-                    }
-                }
-            }
+            g_trans_settings.session_id_len = nghq_convert_session_id_string (
+                optarg, 0, &g_trans_settings.session_id);
             break;
         case 'p':
             send_port = atoi (optarg);

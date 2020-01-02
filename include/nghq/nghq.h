@@ -374,6 +374,23 @@ extern ssize_t nghq_select_alpn (nghq_session *session,
  */
 extern ssize_t nghq_get_alpn (const uint8_t **alpn);
 
+/**
+ * @brief Given a hex string, create a session ID
+ *
+ * This method will allocate the correct amount of memory into @p buf needed to
+ * hold the hex string pointed to by @p str, converted into raw bytes. If @p len
+ * is non-zero, then it will assume @p str is that many bytes long. If @p len is
+ * zero, then this function will assume that @p str is NULL-terminated.
+ *
+ * @param str A hex string
+ * @param len Length of @p str, or zero.
+ * @param buf A pointer to a pointer where a buffer will be allocated
+ *
+ * @return The number of bytes allocated for @p buf, or zero on error.
+ */
+extern uint8_t nghq_convert_session_id_string (const char *str, size_t len,
+                                               uint8_t **buf);
+
 /*
  * Session Callbacks
  */

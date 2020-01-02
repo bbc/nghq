@@ -2584,5 +2584,47 @@ ssize_t nghq_get_alpn (const uint8_t **alpn)
     return (ssize_t)total_len;
 }
 
+uint8_t nghq_convert_session_id_string (const char *str, size_t len,
+                                        uint8_t **buf)
+{
+  uint8_t *_buf, rv;
+  size_t offset = 0;
+  int i = 0, lower;
+  if (len == 0) {
+    len = strnlen(str, 40);
+  }
+
+  rv = (len / 2) + (len % 2);
+  _buf = (uint8_t *) calloc (rv, 1);
+  if (_buf == NULL) {
+    return 0;
+  }
+
+  lower = len % 2;
+  while (offset < len) {
+    if ((str[offset] >= '0') && (str[offset] <= '9')) {
+      _buf[i] |= (lower)?(str[offset] - 48):((str[offset] - 48) << 4);
+    } else if ((str[offset] >= 'A') && (str[offset] <= 'F')) {
+      _buf[i] |= (lower)?(str[offset] - 55):((str[offset] - 55) << 4);
+    } else if ((str[offset] >= 'a') && (str[offset] <= 'f')) {
+      _buf[i] |= (lower)?(str[offset] - 87):((str[offset] - 87) << 4);
+    } else {
+      ERROR("Not a valid hex character %c (%x)\n", str[offset], str[offset]);
+      break;
+    }
+
+    ++offset;
+    if (lower) {
+      ++i;
+      lower = 0;
+    } else {
+      lower = 1;
+    }
+  }
+
+  *buf = _buf;
+  return rv;
+}
+
 
 // vim:ts=8:sts=2:sw=2:expandtab:
