@@ -2626,5 +2626,10 @@ uint8_t nghq_convert_session_id_string (const char *str, size_t len,
   return rv;
 }
 
+void nghq_free_session_id_string (uint8_t *buf)
+{
+  free (buf);
+}
+
 
 // vim:ts=8:sts=2:sw=2:expandtab:

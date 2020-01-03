@@ -391,6 +391,17 @@ extern ssize_t nghq_get_alpn (const uint8_t **alpn);
 extern uint8_t nghq_convert_session_id_string (const char *str, size_t len,
                                                uint8_t **buf);
 
+/**
+ * @brief Release allocated memory for a session ID string
+ *
+ * A convenience function that ensures the correct free method is used to
+ * release memory previously allocated for a session ID string.
+ *
+ * @param buf A previously allocated session ID string. If this value is NULL,
+ *          then the result of this function is undefined.
+ */
+extern void nghq_free_session_id_string (uint8_t *buf);
+
 /*
  * Session Callbacks
  */
