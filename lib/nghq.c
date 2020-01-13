@@ -130,6 +130,7 @@ static void _update_timers(nghq_session *session)
   ngtcp2_tstamp ts;
 
   if (!session->callbacks.set_timer_callback) return;
+  if (!session->handshake_complete) return;
 
   ts = ngtcp2_conn_loss_detection_expiry (session->ngtcp2_session);
   _adjust_timer(session, ts, &session->conn_loss_tstamp,
