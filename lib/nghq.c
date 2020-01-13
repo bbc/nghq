@@ -642,7 +642,9 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     ngtcp2_conn_set_aead_overhead(session->ngtcp2_session, 0);
 
     uint8_t *strm0pkt;
-    size_t len_strm0_pkt = get_fake_client_stream_0_packet (1, &strm0pkt);
+    size_t len_strm0_pkt = get_fake_client_stream_0_packet (session->session_id,
+                                                        session->session_id_len,
+                                                        1, &strm0pkt);
     result = ngtcp2_conn_read_pkt(session->ngtcp2_session, &session->tcp2_path,
                                   strm0pkt, len_strm0_pkt, get_timestamp_now());
 

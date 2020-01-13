@@ -326,7 +326,7 @@ size_t get_fake_client_initial_packet (uint8_t* sid, size_t sid_len,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |                    Packet Number (8/16/24/32)               ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |      Payload (20 bytes of PADDING to keep ngtcp2 happy)     ...
+ * | Payload (ACK client initial, 20 bytes of PADDING for ngtcp2)...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 size_t get_fake_server_initial_packet (uint8_t* sid, size_t sid_len,
@@ -338,6 +338,22 @@ size_t get_fake_server_initial_packet (uint8_t* sid, size_t sid_len,
     header_len += 18; /* Fixed SCID of "mcast-quic-serv\0" + empty token len*/
     header_len += sid_len;
     header_len += _bytes_required ((int64_t) pkt_num, 0);
+
+    /* ACK the client initial
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                      Frame Type: ACK (0x02)                 ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                     Largest Acknowledged (0)                ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                          ACK Delay (0)                      ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                       ACK Range Count (0)                   ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                       First ACK Range (0)                   ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     *    = 5 bytes
+     */
+    payload_len += 5;
 
     /* 20 byte PADDING payload */
     payload_len = 20;
@@ -365,7 +381,8 @@ size_t get_fake_server_initial_packet (uint8_t* sid, size_t sid_len,
                                _bytes_required ((int64_t) pkt_num, 0));
     offset += put_packet_number(pkt_num, buf + offset, packet_len - offset);
 
-    memset (buf + offset, 0, 20);
+    buf[offset++] = 0x02;
+    memset (buf + offset, 0, 24);
 
     *pkt = buf;
     return packet_len;
@@ -461,6 +478,24 @@ size_t get_fake_server_handshake_packet (uint8_t* sid, size_t sid_len,
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  * +-+-+-+-+-+-+-+-+
+ * |1|1| 2 |R R|P P|  HANDSHAKE
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                         Version (32)                          |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | DCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |               Destination Connection ID (0..160)            ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | SCID Len (8)  |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                 Source Connection ID (0..160)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                           Length (i)                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                    Packet Number (8/16/24/32)               ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |Payload (ACK srvr handshake, 20 bytes of PADDING for ngtcp2) ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |0|1|S|R|R|K|P P|
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * |                Destination Connection ID (0..160)           ...
@@ -478,43 +513,56 @@ size_t get_fake_server_handshake_packet (uint8_t* sid, size_t sid_len,
  * |                Stream Data ("quic-mcast magic")             ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-size_t get_fake_client_stream_0_packet (uint32_t pkt_num, uint8_t **pkt) {
-  size_t offset = _bytes_required ((int64_t) pkt_num, false);
+size_t get_fake_client_stream_0_packet (uint8_t* sid, size_t sid_len,
+                                        uint32_t pkt_num, uint8_t **pkt) {
+  size_t offset = 0, short_pkt_offset = 0;
   size_t dcid_len = sizeof(fake_server_handshake_scid);
-  size_t length = 1 + dcid_len + offset + LENGTH_CLIENT_STREAM_0_PAYLOAD;
+  size_t handshake_ack_len = 1 + 4 + 1 + dcid_len + 1 + sid_len +
+      _bytes_required ((int64_t) 26, false) +
+      _bytes_required ((int64_t) 0, false) + 25;
+  size_t short_packet_len = 1 + dcid_len + 1 + LENGTH_CLIENT_STREAM_0_PAYLOAD;
 
-  uint8_t *buf = (uint8_t *) malloc (length);
+  uint8_t *buf = (uint8_t *) malloc (handshake_ack_len + short_packet_len);
   if (buf == NULL) {
     return 0;
   }
 
-  memcpy(buf + 1, fake_server_handshake_scid, dcid_len);
-  switch (offset) {
-    case 1:
-      buf[0] = 0x40;
-      buf[dcid_len + 1] = (uint8_t) pkt_num;
-      break;
-    case 2:
-      buf[0] = 0x41;
-      put_uint16_in_buf (buf + dcid_len + 1, (uint16_t) pkt_num);
-      break;
-    case 3:
-      buf[0] = 0x42;
-      buf[dcid_len + 1] = (htonl((int) pkt_num) >> 16);
-      put_uint16_in_buf (buf + dcid_len + 2, (uint16_t) pkt_num);
-      break;
-    case 4:
-      buf[0] = 0x43;
-      put_uint32_in_buf (buf + dcid_len + 1, pkt_num);
-      break;
-    default:
-      /* PANIC! */
-      abort();
-  }
-  memcpy(buf + dcid_len + offset + 1, fake_client_stream_0_payload,
+  buf[offset] = 0xE0 + (uint8_t)(_bytes_required ((int64_t) pkt_num, 0) - 1);
+  buf[offset+1] = 0xff; buf[offset+2] = 0x00; buf[offset+3] = 0x00;
+  buf[offset+4] = 0x16; /* draft-22 */
+  offset += 5;
+  buf[offset++] = dcid_len;
+  memcpy(buf + offset, fake_server_handshake_scid, dcid_len);
+  offset += dcid_len;
+  buf[offset++] = sid_len;
+  memcpy(buf + offset, sid, sid_len);
+  offset += sid_len;
+  buf[offset++] = 26; /* Length = 26 (25 plus 1 byte for pktnum) */
+  buf[offset++] = 0; /* Packet Number = 0 */
+  buf[offset++] = 0x02; /* ACK frame */
+  /*
+   * 24 bytes:
+   *  ACK Largest Acknowledged: 0 (Only 1 Handshake packet to fake ACK)
+   *  ACK Delay: 0
+   *  ACK Range Count: 0
+   *  First ACK Range: 0
+   * And then the 20 bytes of padding to keep ngtcp2 happy
+   */
+  memset(buf + offset, 0, 24);
+  offset += 24;
+  short_pkt_offset = offset;
+
+  memcpy(buf + short_pkt_offset + 1, fake_server_handshake_scid, dcid_len);
+  short_pkt_offset += dcid_len + 1;
+  size_t pktnumlen = put_packet_number(pkt_num, buf + short_pkt_offset,
+                       handshake_ack_len + short_packet_len - short_pkt_offset);
+  /* First byte of the short packet, now we now how long the packet number is */
+  buf[offset] = 0x40 + ((uint8_t) pktnumlen - 1);
+  short_pkt_offset += pktnumlen;
+  memcpy(buf + short_pkt_offset, fake_client_stream_0_payload,
          LENGTH_CLIENT_STREAM_0_PAYLOAD);
 
   *pkt = buf;
 
-  return length;
+  return handshake_ack_len + short_packet_len;
 }

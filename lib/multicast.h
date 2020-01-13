@@ -63,7 +63,8 @@ size_t get_fake_server_handshake_packet (uint8_t* sid, size_t sid_len,
                                          nghq_transport_parameters *t_params,
                                          uint8_t **pkt);
 
-size_t get_fake_client_stream_0_packet (uint32_t pkt_num, uint8_t **pkt);
+size_t get_fake_client_stream_0_packet (uint8_t* sid, size_t sid_len,
+                                        uint32_t pkt_num, uint8_t **pkt);
 
 static const uint8_t quic_mcast_magic[] = {
     0x71, 0x75, 0x69, 0x63, 0x2d, 0x6d, 0x63, 0x61, /* quic-mcast magic */
