@@ -86,6 +86,48 @@ void put_int64_in_buf (uint8_t* buf, int64_t n) {
   put_uint64_in_buf( buf, (uint64_t)n);
 }
 
+uint64_t get_packet_number (uint8_t first_byte, uint8_t *buf) {
+  uint64_t pkt_num;
+  switch (first_byte & 0x03) {
+    case 0:
+      pkt_num = (uint64_t) buf[0];
+      break;
+    case 1:
+      pkt_num = (uint64_t) get_uint16_from_buf (buf);
+      break;
+    case 2:
+      pkt_num = 0;
+      pkt_num = buf[0] << 16;
+      pkt_num = pkt_num | (uint64_t) get_uint16_from_buf (buf + 1);
+      break;
+    case 3:
+      pkt_num = (uint64_t) get_uint32_from_buf (buf);
+  }
+  return pkt_num;
+}
+
+size_t put_packet_number (uint64_t pkt_num, uint8_t *buf, size_t buf_len) {
+  /* Shave it down to 32 bits */
+  uint32_t wire_pkt_num = (uint32_t) pkt_num;
+  size_t bytes_req = _bytes_required ((int64_t) wire_pkt_num, 0);
+  if (bytes_req > buf_len) bytes_req = buf_len;
+  switch(bytes_req) {
+    case 1:
+      buf[0] = (uint8_t) wire_pkt_num;
+      break;
+    case 3:
+      buf[0] = (htonl((int) wire_pkt_num) >> 16);
+      // @suppress("No break at end of case")
+    case 2:
+      put_uint16_in_buf (buf, (uint16_t) wire_pkt_num);
+      break;
+    case 4:
+      put_uint32_in_buf (buf, wire_pkt_num);
+      break;
+  }
+  return bytes_req;
+}
+
 uint64_t get_timestamp_now () {
   struct timeval tv;
   gettimeofday(&tv,NULL);

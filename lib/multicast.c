@@ -293,25 +293,7 @@ size_t get_fake_client_initial_packet (uint8_t* sid, size_t sid_len,
   buf[offset++] = 0; /* Empty token length */
   offset += _make_varlen_int(buf + offset, (uint64_t) payload_len +
                              _bytes_required ((int64_t) init_pkt_num, 0));
-  switch(_bytes_required ((int64_t) init_pkt_num, 0)) {
-    case 1:
-      buf[offset++] = (uint8_t) init_pkt_num;
-      break;
-    case 3:
-      buf[offset++] = (htonl((int) init_pkt_num) >> 16);
-      // @suppress("No break at end of case")
-    case 2:
-      put_uint16_in_buf (buf + offset, (uint16_t) init_pkt_num);
-      offset += 2;
-      break;
-    case 4:
-      put_uint32_in_buf (buf + offset, init_pkt_num);
-      offset += 4;
-      break;
-    default:
-      /* PANIC! */
-      abort();
-  }
+  offset += put_packet_number (init_pkt_num, buf + offset, packet_len - offset);
 
   offset += _make_varlen_int (buf + offset, 0x06ULL);
   buf[offset++] = 0; /* Offset... */
@@ -381,25 +363,7 @@ size_t get_fake_server_initial_packet (uint8_t* sid, size_t sid_len,
     buf[offset++] = 0; /* Empty token length */
     offset += _make_varlen_int(buf + offset, (uint64_t) payload_len +
                                _bytes_required ((int64_t) pkt_num, 0));
-    switch(_bytes_required ((int64_t) pkt_num, 0)) {
-      case 1:
-        buf[offset++] = (uint8_t) pkt_num;
-        break;
-      case 3:
-        buf[offset++] = (htonl((int) pkt_num) >> 16);
-        /* @suppress("No break at end of case") */
-      case 2:
-        put_uint16_in_buf (buf + offset, (uint16_t) pkt_num);
-        offset += 2;
-        break;
-      case 4:
-        put_uint32_in_buf (buf + offset, pkt_num);
-        offset += 4;
-        break;
-      default:
-        /* PANIC! */
-        abort();
-    }
+    offset += put_packet_number(pkt_num, buf + offset, packet_len - offset);
 
     memset (buf + offset, 0, 20);
 
@@ -482,25 +446,7 @@ size_t get_fake_server_handshake_packet (uint8_t* sid, size_t sid_len,
   offset += 17;
   offset += _make_varlen_int(buf + offset, (uint64_t) payload_len +
                              _bytes_required ((int64_t) pkt_num, 0));
-  switch(_bytes_required ((int64_t) pkt_num, 0)) {
-    case 1:
-      buf[offset++] = (uint8_t) pkt_num;
-      break;
-    case 3:
-      buf[offset++] = (htonl((int) pkt_num) >> 16);
-      /* @suppress("No break at end of case") */
-    case 2:
-      put_uint16_in_buf (buf + offset, (uint16_t) pkt_num);
-      offset += 2;
-      break;
-    case 4:
-      put_uint32_in_buf (buf + offset, pkt_num);
-      offset += 4;
-      break;
-    default:
-      /* PANIC! */
-      abort();
-  }
+  offset += put_packet_number (pkt_num, buf + offset, packet_len - offset);
 
   offset += _make_varlen_int (buf + offset, 0x06ULL);
   buf[offset++] = 0; /* Offset... */
