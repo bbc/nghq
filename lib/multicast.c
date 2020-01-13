@@ -410,9 +410,9 @@ size_t get_fake_server_initial_packet (uint8_t* sid, size_t sid_len,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 size_t get_fake_server_handshake_packet (uint8_t* sid, size_t sid_len,
-                                             uint32_t pkt_num,
-                                             nghq_transport_parameters *t_params,
-                                             uint8_t **pkt) {
+                                         uint32_t pkt_num,
+                                         nghq_transport_parameters *t_params,
+                                         uint8_t **pkt) {
   /* TODO: Might have to add a server initial packet to this ... */
   size_t packet_len, offset, payload_len = 0, t_param_len, header_len = 6; /* initial byte + version + dcid len field */
   header_len += sid_len;
