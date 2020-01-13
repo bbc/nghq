@@ -235,7 +235,9 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
 
 int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id);
 
-void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd);
+int nghq_get_packet_number (uint64_t *pktnum, uint8_t *pkt, size_t pkt_len,
+                            size_t session_id_len);
+void nghq_mcast_fake_ack (nghq_session* session, uint8_t *pkt, size_t pkt_len);
 
 nghq_stream *nghq_stream_new (uint64_t stream_id);
 nghq_stream *nghq_req_stream_new(nghq_session* session);

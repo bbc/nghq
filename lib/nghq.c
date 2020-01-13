@@ -2248,13 +2248,8 @@ int nghq_write_send_buffer (nghq_session* session) {
 
     if ((session->mode == NGHQ_MODE_MULTICAST) &&
         (session->role != NGHQ_ROLE_CLIENT)) {
-        ngtcp2_pkt_hd hdr;
-        ssize_t read = ngtcp2_pkt_decode_hd_short (&hdr, session->send_buf->buf,
-                                                   session->send_buf->buf_len,
-                                                   session->session_id_len);
-        if (read > 0) {
-          nghq_mcast_fake_ack (session, &hdr);
-        }
+        nghq_mcast_fake_ack (session, session->send_buf->buf,
+                             session->send_buf->buf_len);
     }
 
     free (session->send_buf->buf);
@@ -2398,6 +2393,64 @@ static uint64_t _calc_pkt_number (nghq_session* session, uint64_t pkt_num) {
   return rv;
 }
 
+int nghq_get_packet_number (uint64_t *pktnum, uint8_t *pkt, size_t pkt_len,
+                            size_t session_id_len)
+{
+  int rv = NGHQ_ERROR;
+  if (pkt[0] & 0x80) {
+    /* Long header:
+     * +-+-+-+-+-+-+-+-+
+     * |1|1|T T|R R|P P|  Long header
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                         Version (32)                          |
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * | DCID Len (8)  |
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |               Destination Connection ID (0..160)            ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * | SCID Len (8)  |
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                 Source Connection ID (0..160)               ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                         Token Length (i)                    ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                            Token (*)                        ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                           Length (i)                        ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                    Packet Number (8/16/24/32)               ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     */
+    uint32_t version = get_uint32_from_buf (pkt + 1);
+    if (version == 0) {
+      /* Version negotiation packet with no packet number */
+      return NGHQ_TRANSPORT_VERSION;
+    }
+    size_t offset = 6 + (size_t) pkt[5]; /* DCID Len */
+    size_t bytes_needed = 0;
+    offset += pkt[offset] + 1; /* SCID Len + SCID Len field */
+    offset += (size_t) _get_varlen_int (pkt + offset, &bytes_needed,
+                                        pkt_len - offset);
+    offset += bytes_needed;
+    _get_varlen_int (pkt + offset, &offset, pkt_len - offset);
+    *pktnum = get_packet_number (pkt[0], pkt + offset);
+    rv = NGHQ_OK;
+  } else {
+    /* Short header
+     * +-+-+-+-+-+-+-+-+
+     * |0|1|S|R|R|K|P P|
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                Destination Connection ID (0..160)           ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                   Packet Number (8/16/24/32)                ...
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     */
+    *pktnum = get_packet_number (pkt[0], pkt + session_id_len + 1);
+    rv = NGHQ_OK;
+  }
+  return rv;
+}
+
 /*
  *  0                   1                   2                   3
  *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -2424,7 +2477,7 @@ static uint64_t _calc_pkt_number (nghq_session* session, uint64_t pkt_num) {
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 
-void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd) {
+void nghq_mcast_fake_ack (nghq_session* session, uint8_t *pkt, size_t pkt_len) {
   /*
    * Generate a fake ACK to feed back into ngtcp2 to keep it happy that
    * everything sent has been successfully received.
@@ -2433,7 +2486,16 @@ void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd) {
   if (fake == NULL) {
     return;
   }
-  uint64_t real_pkt_num = _calc_pkt_number(session, hd->pkt_num);
+  uint64_t real_pkt_num;
+  if (nghq_get_packet_number (&real_pkt_num, pkt, pkt_len,
+                              session->session_id_len) != NGHQ_OK) {
+    ERROR("Failed to get packet number from source packet to be sent\n");
+    return;
+  }
+  DEBUG("In-packet packet number of %lu", real_pkt_num);
+  real_pkt_num = _calc_pkt_number(session, real_pkt_num);
+
+  DEBUG("Calculated real packet number of %lu", real_pkt_num);
 
   /* 1 byte for the fixed header byte, 1 byte for the packet number */
   uint64_t offset, acklen, headerlen = 2;
@@ -2471,7 +2533,7 @@ void nghq_mcast_fake_ack (nghq_session* session, const ngtcp2_pkt_hd *hd) {
     memcpy (fake->buf + 1, session->session_id, session->session_id_len);
     offset = 1 + session->session_id_len;
   }
-  fake->buf[offset++] = session->remote_pktnum;
+  fake->buf[offset++] = session->remote_pktnum++;
   offset += _make_varlen_int(fake->buf + offset, 0x02);
   offset += _make_varlen_int(fake->buf + offset, real_pkt_num);
   offset += _make_varlen_int(fake->buf + offset, 0); /* ACK Delay */
