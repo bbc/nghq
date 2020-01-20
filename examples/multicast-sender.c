@@ -65,7 +65,7 @@
 /*
  * Worst case QUIC + STREAM + Stream Type + Push Stream + H3 header = ~80 bytes
  */
-#define MAX_PACKET_LEN        1420
+#define MAX_PACKET_LEN        1470
 /* MAX_PAYLOAD_LEN - maximum block size used in stream data */
 /*** ngtcp2 bug means that payload must fit in a packet. ***/
 //#define MAX_PAYLOAD_LEN              (MAX_PACKET_LEN-29)

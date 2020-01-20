@@ -242,6 +242,8 @@ void nghq_mcast_fake_ack (nghq_session* session, uint8_t *pkt, size_t pkt_len);
 nghq_stream *nghq_stream_new (uint64_t stream_id);
 nghq_stream *nghq_req_stream_new(nghq_session* session);
 
+#define NGHQ_FRAME_OVERHEADS (1 + 4)
+
 #define NGHQ_NO_PUSH UINT64_C(0x7FFFFFFFFFFFFFFF)
 #define NGHQ_MULTICAST_MAX_UNI_STREAM_ID UINT64_C(0x3FFFFFFFFFFFFFFF)
 #define NGHQ_MULTICAST_MAX_PUSH_ID UINT64_C(0x3FFFFFFFFFFFFFFF)

@@ -218,6 +218,8 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
   memset (&session->t_params, 0, sizeof(session->t_params));
   session->t_params.idle_timeout = transport->idle_timeout;
   session->t_params.max_packet_size = transport->max_packet_size;
+  session->t_params.max_packet_size -= NGHQ_FRAME_OVERHEADS;
+  session->t_params.max_packet_size -= session->session_id_len;
   session->t_params.initial_max_data = transport->max_data;
   session->t_params.initial_max_stream_data_bidi_local =
       session->t_params.initial_max_stream_data_bidi_remote =
@@ -333,7 +335,8 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
   tcp2_settings.max_streams_bidi = session->max_open_requests;
   tcp2_settings.max_streams_uni = session->max_open_server_pushes;
   tcp2_settings.idle_timeout = transport->idle_timeout;
-  tcp2_settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
+  tcp2_settings.max_packet_size = session->t_params.max_packet_size +
+      session->session_id_len + NGHQ_FRAME_OVERHEADS;
   tcp2_settings.ack_delay_exponent = NGTCP2_DEFAULT_ACK_DELAY_EXPONENT;
   tcp2_settings.flags = NGTCP2_SETTINGS_FLAG_UNORDERED_DATA;
 
@@ -549,7 +552,8 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
   tcp2_settings.max_streams_bidi = session->max_open_requests;
   tcp2_settings.max_streams_uni = session->max_open_server_pushes;
   tcp2_settings.idle_timeout = transport->idle_timeout;
-  tcp2_settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
+  tcp2_settings.max_packet_size = session->t_params.max_packet_size +
+        session->session_id_len + NGHQ_FRAME_OVERHEADS;
   tcp2_settings.ack_delay_exponent = NGTCP2_DEFAULT_ACK_DELAY_EXPONENT;
   tcp2_settings.flags = NGTCP2_SETTINGS_FLAG_UNORDERED_DATA;
 
