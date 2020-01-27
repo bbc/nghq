@@ -255,6 +255,7 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, int64_t stream_id,
          (void *) conn, stream_id, fin, datalen, user_data, stream_user_data);
   nghq_session* session = (nghq_session *) user_data;
   nghq_stream* stream = nghq_stream_id_map_find(session->transfers, stream_id);
+  nghq_stream_type stype = stream_id % 4;
   size_t data_offset = 0;
   int rv;
 
@@ -264,6 +265,14 @@ int nghq_transport_recv_stream_data (ngtcp2_conn *conn, int64_t stream_id,
     stream = nghq_stream_new(stream_id);
     if (stream == NULL) {
       return NGTCP2_ERR_NOMEM;
+    }
+    if (stream_id < session->next_stream_id[stype]) {
+      ERROR("New stream ID (%u) is less than the expected new stream ID (%u)",
+            stream_id,
+            ((session->next_stream_id[stype] * 4) + stype));
+      return NGHQ_TRANSPORT_BAD_STREAM_ID;
+    } else {
+      session->next_stream_id[stype] = (stream_id - stype) / 4;
     }
     nghq_stream_id_map_add(session->transfers, stream_id, stream);
     if (CLIENT_REQUEST_STREAM(stream_id)) {
@@ -414,7 +423,7 @@ int nghq_transport_extend_max_stream_id (ngtcp2_conn *conn,
     }
   } else if (session->role == NGHQ_ROLE_SERVER) {
     if ((max_stream_id % 4) == 3) {
-      session->max_open_server_pushes = max_stream_id;
+      session->max_open_server_uni = max_stream_id;
     } else if ((max_stream_id % 4) == 1) {
       /* Future use? */
     }

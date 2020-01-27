@@ -157,6 +157,13 @@ typedef struct nghq_transport_parameters {
   int64_t active_connection_id_limit;
 } nghq_transport_parameters;
 
+typedef enum {
+  NGHQ_STREAM_CLIENT_BIDI = 0,
+  NGHQ_STREAM_SERVER_BIDI = 1,
+  NGHQ_STREAM_CLIENT_UNI = 2,
+  NGHQ_STREAM_SERVER_UNI = 3,
+} nghq_stream_type;
+
 struct nghq_session {
   /* ngtcp2 tracking */
   ngtcp2_conn*    ngtcp2_session;
@@ -164,13 +171,13 @@ struct nghq_session {
   uint8_t*        session_id;
   size_t          session_id_len;
 
-  /* The highest stream IDs for both client requests and server pushes */
-  uint64_t        highest_bidi_stream_id;
-  uint64_t        highest_uni_stream_id;
+  /* The next stream ID to open for each stream type */
+  uint64_t        next_stream_id[4];
 
   /* The maximum allowed stream IDs for client requests and server pushes */
   uint64_t        max_open_requests;
-  uint64_t        max_open_server_pushes;
+  uint64_t        max_open_client_uni;
+  uint64_t        max_open_server_uni;
 
   uint64_t        next_push_promise;
   uint64_t        max_push_promise;
@@ -184,6 +191,9 @@ struct nghq_session {
 
   nghq_mode       mode;
   int             handshake_complete;
+
+  uint64_t        tx_pkt_num;
+  uint64_t        rx_pkt_num;
 
   uint8_t         remote_pktnum;
   uint64_t        last_remote_pkt_num;
@@ -242,8 +252,11 @@ void nghq_mcast_fake_ack (nghq_session* session, uint8_t *pkt, size_t pkt_len);
 nghq_stream *nghq_stream_new (uint64_t stream_id);
 nghq_stream *nghq_req_stream_new(nghq_session* session);
 
+nghq_stream *nghq_open_stream (nghq_session* session, nghq_stream_type type);
+
 #define NGHQ_FRAME_OVERHEADS (1 + 4)
 
+#define NGHQ_INVALID_STREAM_ID UINT64_C(0x7FFFFFFFFFFFFFFF)
 #define NGHQ_NO_PUSH UINT64_C(0x7FFFFFFFFFFFFFFF)
 #define NGHQ_MULTICAST_MAX_UNI_STREAM_ID UINT64_C(0x3FFFFFFFFFFFFFFF)
 #define NGHQ_MULTICAST_MAX_PUSH_ID UINT64_C(0x3FFFFFFFFFFFFFFF)

@@ -41,8 +41,11 @@
 #include "multicast.h"
 #include "io_buf.h"
 #include "lang.h"
+#include "quic_transport.h"
 
 #include "debug.h"
+
+#define REMOVE_NGTCP2 1
 
 #define MIN(a,b) ((a<b)?(a):(b))
 
@@ -127,6 +130,7 @@ static void _adjust_timer(nghq_session *session, ngtcp2_tstamp trigger_time, ngt
 
 static void _update_timers(nghq_session *session)
 {
+#if !REMOVE_NGTCP2
   ngtcp2_tstamp ts;
 
   if (!session->callbacks.set_timer_callback) return;
@@ -139,6 +143,7 @@ static void _update_timers(nghq_session *session)
   ts = ngtcp2_conn_ack_delay_expiry (session->ngtcp2_session);
   _adjust_timer(session, ts, &session->conn_ack_tstamp,
                 &session->conn_ack_timer, _conn_ack_timeout, NULL);
+#endif
 }
 
 nghq_stream * nghq_stream_init() {
@@ -161,6 +166,7 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
                                       const nghq_transport_settings *transport,
                                       void *session_user_data) {
   nghq_session *session = (nghq_session *) malloc (sizeof(nghq_session));
+  int i;
 
   if (session == NULL) {
     ERROR("Couldn't create session object!\n");
@@ -178,9 +184,9 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
   session->mode = transport->mode;
   session->handshake_complete = 0;
   session->max_open_requests = transport->max_open_requests;
-  session->max_open_server_pushes = transport->max_open_server_pushes;
-  session->highest_bidi_stream_id = 0;
-  session->highest_uni_stream_id = 0;
+  session->max_open_client_uni = 0;
+  session->max_open_server_uni = transport->max_open_server_pushes;
+  for (i = 0; i < 4; i++) session->next_stream_id[i] = 0;
   session->next_push_promise = 0;
   session->max_push_promise = 0;
 
@@ -191,9 +197,7 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
          sizeof(nghq_transport_settings));
 
   session->transfers = nghq_stream_id_map_init();
-  nghq_stream *stream0 = nghq_stream_init();
-  stream0->stream_id = 0;
-  nghq_stream_id_map_add (session->transfers, 0, stream0);
+  nghq_open_stream (session, NGHQ_STREAM_CLIENT_BIDI); /* Stream 0 */
   session->promises = nghq_stream_id_map_init();
   session->session_user_data = session_user_data;
 
@@ -242,14 +246,10 @@ static int _nghq_start_session(nghq_session *session,
   if (session->mode == NGHQ_MODE_MULTICAST) {
     DEBUG("Starting a new multicast session\n");
     /* Just set defaults and return */
-    session->highest_bidi_stream_id = NGHQ_INIT_REQUEST_STREAM_ID;
-    session->highest_uni_stream_id = NGHQ_MULTICAST_MAX_UNI_STREAM_ID;
     session->max_push_promise = NGHQ_MULTICAST_MAX_UNI_STREAM_ID;
     return NGHQ_OK;
   }
   DEBUG("Starting a new unicast session\n");
-  session->highest_bidi_stream_id = NGHQ_MULTICAST_MAX_UNI_STREAM_ID;
-  session->highest_uni_stream_id = NGHQ_MULTICAST_MAX_UNI_STREAM_ID;
   session->max_push_promise = 0;
 
   return NGHQ_OK;
@@ -272,6 +272,9 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
     return NULL;
   }
 
+#if REMOVE_NGTCP2
+  session->handshake_complete = 1;
+#else
   /*
    * FROM THE NGTCP2 DOCS:
    * In order to make handshake work for client application, at least the
@@ -462,6 +465,7 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
       goto nghq_client_fail_conn;
     }
   }
+#endif
 
   return session;
 
@@ -491,7 +495,13 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     free (session);
     return NULL;
   }
-
+#if REMOVE_NGTCP2
+  /*nghq_stream* req_stream = nghq_stream_new(NGHQ_PUSH_PROMISE_STREAM);
+  nghq_stream_id_map_add(session->transfers, req_stream->stream_id, req_stream);*/
+  nghq_stream* control = nghq_open_stream(session, NGHQ_STREAM_SERVER_UNI);
+  //nghq_stream_id_map_add(session->transfers, control->stream_id, control);
+  session->handshake_complete = 1;
+#else
   /*
    * FROM THE NGTCP2 DOCS:
    * In order to make handshake work for server application, at least the
@@ -709,7 +719,7 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
 
   DEBUG("Created new server ngtcp2_conn: %p\n",
         (void *) session->ngtcp2_session);
-
+#endif
   return session;
 
 nghq_srv_fail_conn:
@@ -811,7 +821,9 @@ int nghq_session_free (nghq_session *session) {
   nghq_free_hdr_compression_ctx (session->hdr_ctx);
   nghq_io_buf_clear (&session->send_buf);
   nghq_io_buf_clear (&session->recv_buf);
+#if !REMOVE_NGTCP2
   ngtcp2_conn_del (session->ngtcp2_session);
+#endif
   free (session);
   return NGHQ_OK;
 }
@@ -854,10 +866,15 @@ int nghq_session_recv (nghq_session *session) {
   }
 
   while (session->recv_buf != NULL) {
+#if REMOVE_NGTCP2
+    rv = quic_transport_packet_parse (session, session->recv_buf->buf,
+                                      session->recv_buf->buf_len,
+                                      get_timestamp_now());
+#else
     rv = ngtcp2_conn_read_pkt (session->ngtcp2_session, &session->tcp2_path,
                                session->recv_buf->buf,
                                session->recv_buf->buf_len, get_timestamp_now());
-
+#endif
     free (session->recv_buf->buf);
     nghq_io_buf *pop = session->recv_buf;
     session->recv_buf = session->recv_buf->next_buf;
@@ -874,10 +891,11 @@ int nghq_session_recv (nghq_session *session) {
     _update_timers(session);
 
     rv = NGHQ_OK;
-
+#if !REMOVE_NGTCP2
     if (ngtcp2_conn_is_in_draining_period(session->ngtcp2_session)) {
       return NGHQ_SESSION_CLOSED;
     }
+#endif
   }
 
   return rv;
@@ -888,6 +906,7 @@ int nghq_session_recv (nghq_session *session) {
 
 int nghq_session_send (nghq_session *session) {
   int rv = NGHQ_NO_MORE_DATA;
+#if !REMOVE_NGTCP2
   if (ngtcp2_conn_get_bytes_in_flight(session->ngtcp2_session) >=
       MAX_BYTES_IN_FLIGHT) {
     if (rv == NGHQ_NO_MORE_DATA) {
@@ -895,6 +914,7 @@ int nghq_session_send (nghq_session *session) {
       return NGHQ_SESSION_BLOCKED;
     }
   }
+#endif
   rv = nghq_write_send_buffer (session);
 
   /*
@@ -907,6 +927,7 @@ int nghq_session_send (nghq_session *session) {
    */
   nghq_stream *it = nghq_stream_id_map_find(session->transfers, 0);
   while ((rv != NGHQ_ERROR) && (rv != NGHQ_EOF)) {
+#if !REMOVE_NGTCP2
     if (ngtcp2_conn_get_bytes_in_flight(session->ngtcp2_session) >=
         MAX_BYTES_IN_FLIGHT) {
       if (rv == NGHQ_NO_MORE_DATA) {
@@ -914,6 +935,7 @@ int nghq_session_send (nghq_session *session) {
       }
       break;
     }
+#endif
 
     while (it->send_buf == NULL) {
       it = nghq_stream_id_map_iterator(session->transfers, it);
@@ -952,14 +974,21 @@ int nghq_session_send (nghq_session *session) {
       free_buffer = 1;
       next_buf = next_buf->next_buf;
     }
-
+#if REMOVE_NGTCP2
+    ssize_t pkt_len = quic_transport_write_stream(session, it,
+                                                  buffer, buf_len,
+                                                  new_pkt->buf,
+                                                  new_pkt->buf_len, last_data,
+                                                  &sent);
+    //if (pkt_len > 0) sent = pkt_len;
+#else
     ssize_t pkt_len = ngtcp2_conn_write_stream(session->ngtcp2_session,
                                                &session->tcp2_path,
                                                new_pkt->buf, new_pkt->buf_len,
                                                &sent, 0, it->stream_id,
                                                last_data, buffer, buf_len,
                                                get_timestamp_now());
-
+#endif
     if (free_buffer) free(buffer);
 
     if (pkt_len < 0) {
@@ -1243,6 +1272,7 @@ int nghq_submit_push_promise (nghq_session *session,
   }
 
   promised_stream->push_id = session->next_push_promise++;
+  promised_stream->stream_id = NGHQ_INVALID_STREAM_ID;
   promised_stream->user_data = promised_request_user_data;
 
   nghq_stream_id_map_add (session->promises, promised_stream->push_id,
@@ -1322,26 +1352,28 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
     }
     DEBUG("Feeding %lu headers for push promise %lu\n", num_hdrs, push_id);
     /* Start of a server push, so open a new unidirectional stream */
-    if (session->max_open_server_pushes <=
-        nghq_stream_id_map_num_pushes(session->transfers)) {
-      return NGHQ_TOO_MANY_REQUESTS;
+    int64_t new_stream_id = quic_transport_open_stream(session,
+                                                       NGHQ_STREAM_SERVER_UNI);
+    if (new_stream_id < NGHQ_OK) {
+      return new_stream_id;
     }
 
     stream = nghq_stream_id_map_find(session->promises, push_id);
-
+#if !REMOVE_NGTCP2
     rv = ngtcp2_conn_open_uni_stream(session->ngtcp2_session, &stream_id,
                                      (void *) stream);
     if (rv < 0) {
       ERROR("ngtcp2_conn_open_uni_stream failed: %s", ngtcp2_strerror(rv));
       return NGHQ_INTERNAL_ERROR;
     }
-
-    stream->stream_id = stream_id;
+#endif
+    stream->stream_id = new_stream_id;
     stream->send_state = STATE_HDRS;
+    stream->user_data = request_user_data;
     _check_for_trailers(stream, hdrs, num_hdrs);
 
     DEBUG("Push promise %lu will be sent on stream ID %lu\n", push_id,
-          stream_id);
+          new_stream_id);
 
     rv = create_headers_frame (session->hdr_ctx, (int64_t) push_id, hdrs,
                                num_hdrs, &buf, &buf_len);
@@ -1351,7 +1383,7 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
       rv = NGHQ_OK;
     }
 
-    nghq_stream_id_map_add(session->transfers, stream_id, stream);
+    nghq_stream_id_map_add(session->transfers, new_stream_id, stream);
     nghq_stream_id_map_remove(session->promises, push_id);
   } else {
     DEBUG("Feeding %lu headers on stream ID %lu\n", num_hdrs, stream_id);
@@ -1468,7 +1500,7 @@ int nghq_set_max_client_requests (nghq_session *session, uint64_t max_requests){
 }
 
 uint64_t nghq_get_max_pushed (nghq_session *session) {
-  return session->max_open_server_pushes;
+  return session->max_open_server_uni;
 }
 
 int nghq_set_max_pushed(nghq_session *session, uint64_t max_pushed) {
@@ -2249,13 +2281,13 @@ int nghq_write_send_buffer (nghq_session* session) {
         break;
       }
     }
-
+#if !REMOVE_NGTCP2
     if ((session->mode == NGHQ_MODE_MULTICAST) &&
         (session->role != NGHQ_ROLE_CLIENT)) {
         nghq_mcast_fake_ack (session, session->send_buf->buf,
                              session->send_buf->buf_len);
     }
-
+#endif
     free (session->send_buf->buf);
     nghq_io_buf *pop = session->send_buf;
     session->send_buf = session->send_buf->next_buf;
@@ -2556,6 +2588,7 @@ nghq_stream *nghq_stream_new (uint64_t stream_id) {
   return stream;
 }
 
+#if 0
 nghq_stream *nghq_req_stream_new(nghq_session* session) {
   int result;
   nghq_stream *stream = nghq_stream_init();
@@ -2563,6 +2596,16 @@ nghq_stream *nghq_req_stream_new(nghq_session* session) {
     return NULL;
   }
 
+#if REMOVE_NGTCP2
+  int64_t new_stream_id = quic_transport_open_stream(session,
+                                                     NGHQ_STREAM_CLIENT_BIDI);
+  if (new_stream_id < NGHQ_OK) {
+    ERROR("Failed to open new request stream\n");
+    free (stream);
+    return NULL;
+  }
+  stream->stream_id = new_stream_id;
+#else
   result = ngtcp2_conn_open_bidi_stream(session->ngtcp2_session,
                                         &stream->stream_id, stream);
 
@@ -2572,13 +2615,44 @@ nghq_stream *nghq_req_stream_new(nghq_session* session) {
     free (stream);
     return NULL;
   }
+#endif
 
   result = nghq_stream_id_map_add (session->transfers, stream->stream_id,
                                    stream);
   if (result != 0) {
     ERROR("Failed to add new stream %lu to map\n", stream->stream_id);
+#if !REMOVE_NGTCP2
     ngtcp2_conn_shutdown_stream(session->ngtcp2_session, stream->stream_id,
                                 0x01); /* Internal Error code */
+#endif
+    free (stream);
+    return NULL;
+  }
+
+  return stream;
+}
+#endif
+
+nghq_stream *nghq_req_stream_new (nghq_session* session) {
+  return nghq_open_stream (session, NGHQ_STREAM_CLIENT_BIDI);
+}
+
+nghq_stream *nghq_open_stream (nghq_session* session, nghq_stream_type type) {
+  int rv;
+  nghq_stream *stream = nghq_stream_init();
+  if (stream == NULL) return NULL;
+
+  stream->stream_id = quic_transport_open_stream(session, type);
+  if (stream->stream_id < NGHQ_OK) {
+    ERROR("Failed to open new request stream\n");
+    free (stream);
+    return NULL;
+  }
+
+  rv = nghq_stream_id_map_add (session->transfers, stream->stream_id, stream);
+  if (rv != 0) {
+    ERROR("Failed to add new stream %lu to map\n", stream->stream_id);
+    session->next_stream_id[type]--;
     free (stream);
     return NULL;
   }
