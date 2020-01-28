@@ -733,7 +733,7 @@ static nghq_settings g_settings = {
 static nghq_transport_settings g_trans_settings = {
     NGHQ_MODE_MULTICAST,         /* mode */
     16,                          /* max_open_requests */
-    16,                          /* max_open_server_pushes */
+    0x3FFFFFFFFFFFFFFFULL,       /* max_open_server_pushes */
     60,                          /* idle_timeout (seconds) */
     MAX_PACKET_LEN,              /* max_packet_size */
     0,  /* use default */        /* ack_delay_exponent */

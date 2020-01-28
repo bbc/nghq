@@ -117,8 +117,8 @@ typedef enum {
 
 typedef struct {
   nghq_mode mode;
-  uint32_t max_open_requests;
-  uint32_t max_open_server_pushes;
+  uint64_t max_open_requests;
+  uint64_t max_open_server_pushes;
 
   int64_t idle_timeout;
   int64_t max_packet_size;
