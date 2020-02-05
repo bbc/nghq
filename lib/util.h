@@ -55,7 +55,8 @@ void put_uint64_in_buf (uint8_t* buf, uint64_t n);
 void put_int64_in_buf (uint8_t* buf, int64_t n);
 
 uint64_t get_packet_number (uint8_t first_byte, uint8_t *buf);
-size_t put_packet_number (uint64_t pkt_num, uint8_t *buf, size_t buf_len);
+size_t put_packet_number (uint64_t pkt_num, size_t len, uint8_t *buf,
+                          size_t buf_len);
 
 uint64_t get_timestamp_now();
 

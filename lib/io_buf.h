@@ -47,11 +47,30 @@ typedef struct nghq_io_buf {
  * @param list The IO buffer list to add @p buf to
  * @param buf The buffer to add to the list [takes ownership].
  * @param buflen The length of @p buf
- * @param fin Set the fin bit on the QUIC packet when this is sent
+ * @param fin Set the FIN bit on the QUIC stream frame when this is sent
  * @param offset The stream offset of this buffer
  */
 int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen, int fin,
                      size_t offset);
+
+/**
+ * @brief Allocate a new NGHQ IO Buffer object
+ *
+ * Unlike nghq_io_buf_new, this function is designed to be used to create a new
+ * IO buffer object that will then be filled. You can optionally pass a list to
+ * this object and it will pre-add this new object to the end of an existing
+ * buffer list.
+ *
+ * @param list The IO buffer list to add the new buffer to, or NULL if you just
+ *            want a clean object.
+ * @param buflen The length of the buffer inside this object to create.
+ * @param fin Set the FIN bit on the QUIC stream frame when this is sent
+ * @param offset The stream offset of this buffer
+ *
+ * @return An allocated IO buffer object, or NULL if it couldn't be created.
+ */
+nghq_io_buf* nghq_io_buf_alloc (nghq_io_buf** list, size_t buflen, int fin,
+                                size_t offset);
 
 /**
  * @brief Pushes an IO Buffer object to the end of the list

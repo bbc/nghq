@@ -44,6 +44,26 @@ int nghq_io_buf_new (nghq_io_buf** list, uint8_t *buf, size_t buflen, int fin,
   return NGHQ_OK;
 }
 
+nghq_io_buf* nghq_io_buf_alloc (nghq_io_buf **list, size_t buflen, int fin,
+                                size_t offset) {
+  nghq_io_buf* io_buf = (nghq_io_buf *) malloc (sizeof (nghq_io_buf));
+  if (io_buf == NULL) return NULL;
+
+  io_buf->send_pos = io_buf->buf = (uint8_t *) malloc (buflen);
+  if (io_buf->buf == NULL) {
+    free (io_buf);
+    return NULL;
+  }
+
+  io_buf->remaining = io_buf->buf_len = buflen;
+  io_buf->complete = (fin)?(1):(0);
+  io_buf->offset = offset;
+
+  if (list != NULL) nghq_io_buf_push (list, io_buf);
+
+  return io_buf;
+}
+
 void nghq_io_buf_push (nghq_io_buf** list, nghq_io_buf* push) {
   nghq_io_buf *p = *list;
   if (p == NULL) {

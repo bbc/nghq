@@ -189,6 +189,8 @@ struct nghq_session {
   nghq_mode       mode;
   int             handshake_complete;
 
+  size_t          packet_buf_len;
+
   nghq_ts         last_recv_ts;
 
   uint64_t        tx_pkt_num;

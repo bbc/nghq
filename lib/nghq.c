@@ -29,6 +29,7 @@
 #include <time.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <sys/time.h>
 
 #include "nghq/nghq.h"
 #include "nghq_internal.h"
@@ -42,7 +43,6 @@
 #include "quic_transport.h"
 
 #include "debug.h"
-
 
 #define MIN(a,b) ((a<b)?(a):(b))
 
@@ -90,10 +90,16 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
     return NULL;
   }
 
+  if (transport->session_id_len > 20) {
+    ERROR("Session ID size of %u is not allowed\n", transport->session_id_len);
+    free (session);
+    return NULL;
+  }
   session->session_id = (uint8_t *) malloc (transport->session_id_len);
   if (session->session_id == NULL) {
     ERROR("Couldn't allocate space for a session ID of size %u\n",
           transport->session_id_len);
+    free (session);
     return NULL;
   }
   memcpy(session->session_id, transport->session_id, transport->session_id_len);
@@ -112,6 +118,8 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
   memcpy(&session->settings, settings, sizeof(nghq_settings));
   memcpy(&session->transport_settings, transport,
          sizeof(nghq_transport_settings));
+  session->packet_buf_len =
+      transport->max_packet_size - transport->encryption_overhead;
 
   session->transfers = nghq_stream_id_map_init();
   nghq_open_stream (session, NGHQ_STREAM_CLIENT_BIDI); /* Stream 0 */
@@ -203,6 +211,7 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
     goto nghq_srv_fail_session;
   }
 
+  nghq_open_stream(session, NGHQ_STREAM_SERVER_UNI);
   session->handshake_complete = 1;
 
   return session;
@@ -364,114 +373,109 @@ int nghq_session_send (nghq_session *session) {
    * of frames waiting to be sent into an all-streams structure?
    */
   nghq_stream *it = nghq_stream_id_map_find(session->transfers, 0);
+
   while ((rv != NGHQ_ERROR) && (rv != NGHQ_EOF)) {
+    size_t packet_len;
+    ssize_t res;
 
-    while (it->send_buf == NULL) {
-      it = nghq_stream_id_map_iterator(session->transfers, it);
+    nghq_io_buf *new_pkt = nghq_io_buf_alloc (NULL, session->packet_buf_len, 0,
+                                              0);
+    if (new_pkt == NULL) {
+      return NGHQ_OUT_OF_MEMORY;
+    }
+
+    res = quic_transport_write_quic_header (session, new_pkt->buf,
+                                            new_pkt->buf_len);
+    if (res < NGHQ_OK) return res;
+    packet_len = res;
+
+    while (packet_len < new_pkt->buf_len) {
+      uint8_t *outbuf = new_pkt->buf + packet_len;
+      size_t len_remain = new_pkt->buf_len - packet_len;
+      while ((it != NULL) && (it->send_buf == NULL)) {
+        it = nghq_stream_id_map_iterator (session->transfers, it);
+      }
+
       if (it == NULL) {
-        DEBUG("No more data to be sent on any streams\n");
-        return rv;
-      }
-    }
-
-    DEBUG("Got data to send for stream %lu\n", it->stream_id);
-
-    ssize_t sent = 0;
-
-    nghq_io_buf *new_pkt = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
-    new_pkt->buf = (uint8_t *) malloc(
-        session->transport_settings.max_packet_size);
-    new_pkt->buf_len = session->transport_settings.max_packet_size;
-
-    uint8_t last_data = (uint8_t) it->send_buf->complete;
-    uint8_t *buffer = it->send_buf->send_pos;
-    uint8_t free_buffer = 0;
-    size_t buf_len = it->send_buf->remaining;
-    nghq_io_buf *next_buf = it->send_buf->next_buf;
-    while (buf_len < (session->transport_settings.max_packet_size -
-                      MIN_STREAM_PACKET_OVERHEAD) && next_buf) {
-      /* pack data with next stream buffer(s) */
-      if (free_buffer) {
-        buffer = realloc(buffer, buf_len + next_buf->remaining);
-      } else {
-        buffer = (uint8_t*) malloc (buf_len + next_buf->remaining);
-        memcpy (buffer, it->send_buf->send_pos, it->send_buf->remaining);
-      }
-      memcpy (buffer + buf_len, next_buf->send_pos, next_buf->remaining);
-      buf_len += next_buf->remaining;
-      last_data |= (uint8_t) next_buf->complete;
-      free_buffer = 1;
-      next_buf = next_buf->next_buf;
-    }
-    ssize_t pkt_len = ngtcp2_conn_write_stream(session->ngtcp2_session,
-                                               &session->tcp2_path,
-                                               new_pkt->buf, new_pkt->buf_len,
-                                               &sent, 0, it->stream_id,
-                                               last_data, buffer, buf_len,
-                                               get_timestamp_now());
-    if (free_buffer) free(buffer);
-
-    if (pkt_len < 0) {
-      switch (pkt_len) {
-        case NGTCP2_ERR_STREAM_DATA_BLOCKED:
-        case NGTCP2_ERR_STREAM_SHUT_WR:
-        case NGTCP2_ERR_STREAM_NOT_FOUND:
-          free(new_pkt->buf);
-          free(new_pkt);
-          return 0;
-      }
-      ERROR("ngtcp2_conn_write_stream failed: %s\n", ngtcp2_strerror((int) pkt_len));
-      rv = NGHQ_TRANSPORT_ERROR;
-      break;
-    } else if (pkt_len > 0) {
-      /* delete any whole buffers sent */
-      while (it->send_buf && sent >= it->send_buf->remaining) {
-        DEBUG("Sent buffer of size %lu on stream %lu\n",
-              it->send_buf->buf_len, it->stream_id);
-        sent -= it->send_buf->remaining;
-        nghq_io_buf_pop(&it->send_buf);
-      }
-      if (sent > 0) {
-        if (!it->send_buf) {
-          ERROR("Somehow sent more than was available in the buffer!");
-          free(new_pkt->buf);
-          free(new_pkt);
-          return NGHQ_INTERNAL_ERROR;
-        }
-        it->send_buf->send_pos += sent;
-        it->send_buf->remaining -= sent;
-        DEBUG("%lu bytes remaining of buffer to send on stream %lu\n",
-              it->send_buf->remaining, it->stream_id);
-        it->send_buf->complete = last_data;
-        last_data = 0;
-      }
-    } else {
-      free(new_pkt->buf);
-      free(new_pkt);
-      return NGHQ_SESSION_BLOCKED;
-    }
-
-    new_pkt->buf_len = pkt_len;
-    new_pkt->complete = last_data;
-
-    nghq_io_buf_push(&session->send_buf, new_pkt);
-
-    _update_timers(session);
-
-    rv = nghq_write_send_buffer (session);
-
-    if (last_data) {
-      DEBUG("Ending stream %lu\n", it->stream_id);
-      if (session->callbacks.on_request_close_callback != NULL) {
-        session->callbacks.on_request_close_callback(session, it->status,
-                                                     it->user_data);
-      }
-      it->send_state = STATE_DONE;
-      if (it == NULL) {
+        DEBUG ("No more data to be sent on any streams\n");
         break;
       }
+
+      DEBUG ("Got data to send for stream %lu\n", it->stream_id);
+
+      size_t written = 0;
+      ssize_t off = quic_transport_write_stream (session, it,
+                                                it->send_buf->send_pos,
+                                                it->send_buf->remaining,
+                                                outbuf, len_remain,
+                                                it->send_buf->complete,
+                                                &written);
+
+      if (off < NGHQ_OK) {
+        rv = (int) off;
+        break;
+      }
+      packet_len += off;
+      if (written == it->send_buf->remaining) {
+        if (it->send_buf->complete) {
+          DEBUG("Ending stream %lu\n", it->stream_id);
+          if (session->callbacks.on_request_close_callback != NULL) {
+            session->callbacks.on_request_close_callback(session, it->status,
+                                                         it->user_data);
+          }
+          it->send_state = STATE_DONE;
+        }
+        nghq_io_buf_pop (&it->send_buf);
+      } else {
+        it->send_buf->send_pos += written;
+        it->send_buf->remaining -= written;
+      }
+    }
+
+    if (packet_len == res) {
+      DEBUG ("No packet to be sent");
+      quic_transport_abandon_packet (session, new_pkt->buf, new_pkt->buf_len);
+      free (new_pkt->buf);
+      free (new_pkt);
+      break;
+    }
+
+    new_pkt->buf_len = packet_len;
+
+    nghq_io_buf *enc_pkt = new_pkt;
+    if (session->transport_settings.encryption_overhead) {
+      size_t enc_pkt_len =
+          new_pkt->buf_len + session->transport_settings.encryption_overhead;
+      enc_pkt = nghq_io_buf_alloc (NULL, enc_pkt_len, new_pkt->complete, 0);
+      if (enc_pkt == NULL) {
+        free (new_pkt->buf);
+        free (new_pkt);
+        return NGHQ_OUT_OF_MEMORY;
+      }
+    }
+
+    res = quic_transport_encrypt (session, new_pkt->buf, new_pkt->buf_len,
+                                  enc_pkt->buf, enc_pkt->buf_len);
+    if (res < NGHQ_OK) {
+      if (new_pkt != enc_pkt) {
+        free (enc_pkt->buf);
+        free (enc_pkt);
+      }
+      free (new_pkt->buf);
+      free (new_pkt);
+      return res;
+    }
+    enc_pkt->buf_len = res;
+
+    nghq_io_buf_push(&session->send_buf, enc_pkt);
+
+    if (session->transport_settings.encryption_overhead) {
+      free (new_pkt->buf);
+      free (new_pkt);
     }
   }
+
+  rv = nghq_write_send_buffer (session);
 
   return rv;
 }
@@ -681,6 +685,8 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
     int64_t new_stream_id = quic_transport_open_stream(session,
                                                        NGHQ_STREAM_SERVER_UNI);
     if (new_stream_id < NGHQ_OK) {
+      ERROR("Failed to open new stream for push %lu - Reason: %ld", push_id,
+            new_stream_id);
       return new_stream_id;
     }
 
@@ -1605,7 +1611,7 @@ int nghq_write_send_buffer (nghq_session* session) {
     session->send_buf = session->send_buf->next_buf;
     free (pop);
 
-    rv = NGHQ_OK;
+    if (rv > 0) rv = NGHQ_OK;
   }
   return rv;
 }
@@ -1617,6 +1623,17 @@ int nghq_stream_cancel (nghq_session* session, nghq_stream *stream, int error) {
   uint16_t app_error_code = QUIC_ERR_HTTP_NO_ERROR;
   if (error) {
     app_error_code = QUIC_ERR_HTTP_INTERNAL_ERROR;
+    if (session->role == NGHQ_ROLE_SERVER) {
+      nghq_io_buf *buf = nghq_io_buf_alloc (NULL, session->packet_buf_len, 1, 0);
+      ssize_t off = quic_transport_write_quic_header (session, buf->buf,
+                                                      buf->buf_len);
+      off += quic_transport_write_reset_stream (session, buf->buf + off,
+                                                buf->buf_len - off, stream,
+                                                app_error_code);
+      buf->buf_len = quic_transport_encrypt (session, buf->buf, off, buf->buf,
+                                             buf->buf_len);
+      nghq_io_buf_push (&session->send_buf, buf);
+    }
   }
 
   nghq_stream_id_map_remove (session->transfers, stream->stream_id);

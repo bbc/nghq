@@ -106,12 +106,11 @@ uint64_t get_packet_number (uint8_t first_byte, uint8_t *buf) {
   return pkt_num;
 }
 
-size_t put_packet_number (uint64_t pkt_num, uint8_t *buf, size_t buf_len) {
+size_t put_packet_number (uint64_t pkt_num, size_t len,
+                          uint8_t *buf, size_t buf_len) {
   /* Shave it down to 32 bits */
   uint32_t wire_pkt_num = (uint32_t) pkt_num;
-  size_t bytes_req = _bytes_required ((int64_t) wire_pkt_num, 0);
-  if (bytes_req > buf_len) bytes_req = buf_len;
-  switch(bytes_req) {
+  switch(len) {
     case 1:
       buf[0] = (uint8_t) wire_pkt_num;
       break;
@@ -125,7 +124,7 @@ size_t put_packet_number (uint64_t pkt_num, uint8_t *buf, size_t buf_len) {
       put_uint32_in_buf (buf, wire_pkt_num);
       break;
   }
-  return bytes_req;
+  return len;
 }
 
 uint64_t get_timestamp_now () {

@@ -86,6 +86,7 @@ typedef enum {
   NGHQ_HTTP_MALFORMED_FRAME = -73,
   NGHQ_HTTP_PUSH_REFUSED = -74,
   NGHQ_HTTP_ALPN_FAILED = -75,
+  NGHQ_HTTP_BAD_PUSH = -76,
   /* QUIC Transport errors */
   NGHQ_TRANSPORT_ERROR = -100,
   NGHQ_TRANSPORT_CLOSED = -101,
@@ -102,7 +103,7 @@ typedef enum {
 typedef enum {
   NGHQ_HT_HEADERS,
   NGHQ_HT_PUSH_PROMISE,
-  NGHQ_MAX
+  NGHQ_HT_MAX
 } nghq_headers_type;
 
 typedef struct {
@@ -135,6 +136,17 @@ typedef struct {
   size_t destination_address_len;
   uint8_t *source_address;
   size_t source_address_len;
+
+  enum {
+    NGHQ_PKTNUM_LEN_AUTO = 0,
+    NGHQ_PKTNUM_LEN_1_BYTE,
+    NGHQ_PKTNUM_LEN_2_BYTE,
+    NGHQ_PKTNUM_LEN_3_BYTE,
+    NGHQ_PKTNUM_LEN_4_BYTE,
+    NGHQ_PKTNUM_LEN_MAX
+  } packet_number_length;
+
+  size_t encryption_overhead;
 } nghq_transport_settings;
 
 #define NGHQ_SETTINGS_MAX_HEADER_LIST_SIZE 0x6LL
@@ -264,6 +276,7 @@ extern int nghq_session_free (nghq_session *session);
  * @return NGHQ_NO_MORE_DATA If there was no data to be read
  * @return NGHQ_OUT_OF_MEMORY If an internal part of the library failed to
  *    allocate memory
+ * @return NGHQ_TRANSPORT_TIMEOUT If the session has timed out.
  * @return NGHQ_SESSION_CLOSED If the session has been closed, the application
  *    should call nghq_session_free() and close the underlying connection.
  */
@@ -284,6 +297,7 @@ extern int nghq_session_recv (nghq_session *session);
  *    bytes in flight
  * @return NGHQ_OUT_OF_MEMORY if an internal part of the library failed to
  *    allocate memory
+ * @return NGHQ_TRANSPORT_TIMEOUT If the session has timed out.
  * @return NGHQ_SESSION_CLOSED If the session has been closed, the application
  *    should call nghq_session_free() and close the underlying connection.
  */
@@ -324,7 +338,7 @@ extern ssize_t nghq_get_transport_params (nghq_session *session, uint8_t **buf);
  * @return NGHQ_SESSION_CLOSED if the session has been closed
  * @return NGHQ_TRANSPORT_VERSION if no supported protocol version is available
  *    in the peer's TransportParameters.
- * @return NGHQ_TRANSPORT_PROTOCOL if the TransportParameters are malformed
+ * @return NGHQ_TRANSPORT_PARAMETER if the TransportParameters are malformed
  */
 extern int nghq_feed_transport_params (nghq_session *session,
                                        const uint8_t *buf, size_t buflen);
@@ -892,6 +906,7 @@ extern ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
  * not necessary to call this method as the stream will be closed implicitly.
  *
  * @return NGHQ_OK If the request is closed
+ * @return NGHQ_TRANSPORT_TIMEOUT if the underlying session has timed out.
  * @return NGHQ_REQUEST_CLOSED if the request was already closed
  */
 extern int nghq_end_request (nghq_session *session, nghq_error result,
