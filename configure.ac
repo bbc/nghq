@@ -63,9 +63,6 @@ AS_IF([test "x$ac_cv_prog_cc_c99" = "no"], [
 
 AX_PACKED_STRUCT
 
-# Check for required ngtcp2
-PKG_CHECK_MODULES([NGTCP2], [libngtcp2])
-
 LIBEV_CFLAGS=
 LIBEV_LIBS=
 HAVE_LIBEV=0

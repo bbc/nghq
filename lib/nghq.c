@@ -37,15 +37,12 @@
 #include "header_compression.h"
 #include "map.h"
 #include "util.h"
-#include "tcp2_callbacks.h"
-#include "multicast.h"
 #include "io_buf.h"
 #include "lang.h"
 #include "quic_transport.h"
 
 #include "debug.h"
 
-#define REMOVE_NGTCP2 1
 
 #define MIN(a,b) ((a<b)?(a):(b))
 
@@ -64,86 +61,6 @@ static void _check_for_trailers (nghq_stream *stream, const nghq_header **hdrs,
       stream->flags |= STREAM_FLAG_TRAILERS_PROMISED;
     }
   }
-}
-
-static void _conn_ack_timeout (nghq_session *session, void *timer_id,
-                               void *nghq_data)
-{
-  session->conn_ack_timer = NULL;
-  nghq_io_buf *new_pkt = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
-  new_pkt->buf = (uint8_t *) malloc(
-                                 session->transport_settings.max_packet_size);
-  new_pkt->buf_len = session->transport_settings.max_packet_size;
-
-  new_pkt->buf_len = ngtcp2_conn_write_pkt (session->ngtcp2_session,
-                                            &session->tcp2_path, new_pkt->buf,
-                                            new_pkt->buf_len,
-                                            get_timestamp_now());
-
-  nghq_io_buf_push (&session->send_buf, new_pkt);
-  nghq_write_send_buffer (session);
-}
-
-static void _conn_loss_timeout (nghq_session *session, void *timer_id,
-		                void *nghq_data)
-{
-  session->conn_loss_timer = NULL;
-  ngtcp2_conn_on_loss_detection_timer (session->ngtcp2_session,
-                                       get_timestamp_now());
-}
-
-static void _adjust_timer(nghq_session *session, ngtcp2_tstamp trigger_time, ngtcp2_tstamp *tstamp, void **timer, nghq_timer_event cb, void *data)
-{
-  if (trigger_time != *tstamp) {
-    if (trigger_time == UINT64_MAX) {
-      // cancel expiry timer
-      if (*timer) {
-        session->callbacks.cancel_timer_callback (session,
-                                                  session->session_user_data,
-                                                  *timer);
-        *timer = NULL;
-      }
-    } else {
-      ngtcp2_tstamp now = get_timestamp_now ();
-      if (trigger_time <= now) {
-        // time has passed, do now and cancel any existing timer
-        cb (session, *timer, data);
-        if (*timer) {
-          session->callbacks.cancel_timer_callback (session, session->session_user_data, *timer);
-          *timer = NULL;
-          *tstamp = UINT64_MAX;
-        }
-      } else {
-        double from_now = ((double)(trigger_time - now))/1e9;
-        if (*timer) {
-          // timer already exists, update
-          session->callbacks.reset_timer_callback (session, session->session_user_data, *timer, from_now);
-        } else {
-          // create new exiry timer
-          *timer = session->callbacks.set_timer_callback (session, from_now, session->session_user_data, cb, data);
-        }
-      }
-    }
-    *tstamp = trigger_time;
-  }
-}
-
-static void _update_timers(nghq_session *session)
-{
-#if !REMOVE_NGTCP2
-  ngtcp2_tstamp ts;
-
-  if (!session->callbacks.set_timer_callback) return;
-  if (!session->handshake_complete) return;
-
-  ts = ngtcp2_conn_loss_detection_expiry (session->ngtcp2_session);
-  _adjust_timer(session, ts, &session->conn_loss_tstamp,
-                &session->conn_loss_timer, _conn_loss_timeout, NULL);
-
-  ts = ngtcp2_conn_ack_delay_expiry (session->ngtcp2_session);
-  _adjust_timer(session, ts, &session->conn_ack_tstamp,
-                &session->conn_ack_timer, _conn_ack_timeout, NULL);
-#endif
 }
 
 nghq_stream * nghq_stream_init() {
@@ -209,16 +126,6 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
   session->remote_pktnum = 2;
   session->last_remote_pkt_num = 0;
 
-  session->conn_loss_tstamp = UINT64_MAX;
-  session->conn_loss_timer = NULL;
-  session->conn_ack_tstamp = UINT64_MAX;
-  session->conn_ack_timer = NULL;
-
-  session->tcp2_path.remote.addrlen = transport->destination_address_len;
-  session->tcp2_path.remote.addr = transport->destination_address;
-  session->tcp2_path.local.addrlen = transport->source_address_len;
-  session->tcp2_path.local.addr = transport->source_address;
-
   memset (&session->t_params, 0, sizeof(session->t_params));
   session->t_params.idle_timeout = transport->idle_timeout;
   session->t_params.max_packet_size = transport->max_packet_size;
@@ -261,216 +168,20 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
                                         void *session_user_data) {
   nghq_session *session = _nghq_session_new_common (callbacks, settings, transport,
                                                session_user_data);
-  int result;
+  if (!session) return NULL;
 
   if (session != NULL) {
     session->role = NGHQ_ROLE_CLIENT;
   }
 
   if (_nghq_start_session(session, transport) != NGHQ_OK) {
-    free (session);
-    return NULL;
-  }
-
-#if REMOVE_NGTCP2
-  session->handshake_complete = 1;
-#else
-  /*
-   * FROM THE NGTCP2 DOCS:
-   * In order to make handshake work for client application, at least the
-   * following fields of ``ngtcp2_conn_callbacks`` must be set:
-   *
-   * * client_initial
-   * * recv_crypto_data
-   * * in_encrypt
-   * * in_decrypt
-   * * encrypt
-   * * decrypt
-   * * in_hp_mask
-   * * hp_mask
-   * * acked_crypto_offset
-   * * recv_retry
-   * * rand
-   * * get_new_connection_id
-   * * update_key
-   * * select_preferred_addr
-   *
-   */
-  ngtcp2_conn_callbacks tcp2_callbacks = {
-    .client_initial = nghq_transport_send_client_initial,
-    .recv_client_initial = NULL,
-    .recv_crypto_data = nghq_transport_recv_crypto_data,
-    .handshake_completed = nghq_transport_handshake_completed,
-    .recv_version_negotiation = nghq_transport_recv_version_negotiation,
-    .encrypt = nghq_transport_encrypt,
-    .decrypt = nghq_transport_decrypt,
-    .hp_mask = nghq_transport_hp_mask, /*TODO - nghq_transport_hp_mask?*/
-    .recv_stream_data = nghq_transport_recv_stream_data,
-    .acked_crypto_offset = nghq_transport_acked_crypto_offset,
-    .acked_stream_data_offset = nghq_transport_acked_stream_data_offset,
-    .stream_open = nghq_transport_stream_open,
-    .stream_close = nghq_transport_stream_close,
-    .recv_stateless_reset = nghq_transport_recv_stateless_reset,
-    .recv_retry = NULL, /*TODO?!?*/
-    .extend_max_local_streams_bidi = nghq_transport_extend_max_stream_id,
-    .extend_max_local_streams_uni = nghq_transport_extend_max_stream_id,
-    .rand = NULL, /*TODO!*/
-    .get_new_connection_id = NULL, /* TODO- fail connection if received? */
-    .remove_connection_id = NULL, /* TODO - fail connection if received? */
-    .update_key = NULL, /* TODO?!? */
-    .path_validation = NULL, /* Banned by our profile, do we need a wrapper? */
-    .select_preferred_addr = NULL, /* TODO? */
-    .stream_reset = nghq_transport_stream_reset, /*TODO?*/
-    .extend_max_remote_streams_bidi = nghq_transport_extend_max_stream_id,
-    .extend_max_remote_streams_uni = nghq_transport_extend_max_stream_id,
-    .extend_max_stream_data = NULL
-  };
-
-  ngtcp2_settings tcp2_settings;
-  tcp2_settings.initial_ts = get_timestamp_now();
-  tcp2_settings.log_printf = nghq_transport_debug;
-  tcp2_settings.max_stream_data_bidi_local = 256 * 1024;
-  tcp2_settings.max_stream_data_bidi_remote = 256 * 1024;
-  tcp2_settings.max_stream_data_uni = (transport->max_stream_data)?
-                                      (transport->max_stream_data):(256 * 1024);
-  tcp2_settings.max_data = (transport->max_data)?(transport->max_data):
-                               (1 * 1024 * 1024);
-  tcp2_settings.max_streams_bidi = session->max_open_requests;
-  tcp2_settings.max_streams_uni = session->max_open_server_pushes;
-  tcp2_settings.idle_timeout = transport->idle_timeout;
-  tcp2_settings.max_packet_size = session->t_params.max_packet_size +
-      session->session_id_len + NGHQ_FRAME_OVERHEADS;
-  tcp2_settings.ack_delay_exponent = NGTCP2_DEFAULT_ACK_DELAY_EXPONENT;
-  tcp2_settings.flags = NGTCP2_SETTINGS_FLAG_UNORDERED_DATA;
-
-  ngtcp2_cid dcid;
-  memcpy (dcid.data, fake_client_initial_dcid, FAKE_CLIENT_INITIAL_DCID_LEN);
-  dcid.datalen = FAKE_CLIENT_INITIAL_DCID_LEN;
-  ngtcp2_cid scid;
-  memcpy (scid.data, session->session_id, session->session_id_len);
-  scid.datalen = session->session_id_len;
-
-  result = ngtcp2_conn_client_new(&session->ngtcp2_session, &dcid, &scid,
-                                  &session->tcp2_path, NGTCP2_PROTO_VER,
-                                  &tcp2_callbacks, &tcp2_settings, NULL,
-                                  (void *) session);
-  if (result != 0) {
-    ERROR("ngtcp2_conn_client_new failed with error %d", result);
     goto nghq_client_fail_session;
   }
 
-  DEBUG("Created new client ngtcp2_conn: %p\n", (void *) session->ngtcp2_session);
-
-  if (session->mode == NGHQ_MODE_MULTICAST) {
-    uint8_t *buf = malloc(64);
-    nghq_io_buf_new(&session->send_buf, buf, 64, 0, 0);
-    uint8_t *init_buf = malloc(session->transport_settings.max_packet_size);
-    ngtcp2_conn_install_initial_key (session->ngtcp2_session,
-                                     quic_mcast_magic, quic_mcast_magic,
-                                     quic_mcast_magic, quic_mcast_magic,
-                                     quic_mcast_magic, quic_mcast_magic,
-                                     LENGTH_QUIC_MCAST_MAGIC,
-                                     LENGTH_QUIC_MCAST_MAGIC);
-    ngtcp2_conn_install_handshake_key (session->ngtcp2_session,
-                                       quic_mcast_magic, quic_mcast_magic,
-                                       quic_mcast_magic, quic_mcast_magic,
-                                       quic_mcast_magic, quic_mcast_magic,
-                                       LENGTH_QUIC_MCAST_MAGIC,
-                                       LENGTH_QUIC_MCAST_MAGIC);
-
-    ngtcp2_conn_submit_crypto_data(session->ngtcp2_session,
-                                   NGTCP2_CRYPTO_LEVEL_INITIAL,
-                                   quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
-
-    ssize_t bytes_written = ngtcp2_conn_write_stream(
-        session->ngtcp2_session, &session->tcp2_path, init_buf,
-        session->transport_settings.max_packet_size, NULL,
-        NGTCP2_WRITE_STREAM_FLAG_NONE, -1, 0, NULL, 0, get_timestamp_now());
-
-    if (bytes_written <= 0) {
-      ERROR("Failed to write the client initial packet: %d %s\n",
-            result, ngtcp2_strerror(bytes_written));
-      goto nghq_client_fail_conn;
-    }
-
-    uint8_t *fake_server_initial;
-    size_t len_server_init = get_fake_server_initial_packet (
-        session->session_id, session->session_id_len, 1, &session->t_params,
-        &fake_server_initial);
-    result = ngtcp2_conn_read_pkt (session->ngtcp2_session, &session->tcp2_path,
-                                   fake_server_initial, len_server_init,
-                                   get_timestamp_now());
-    free (fake_server_initial);
-    if (result < 0) {
-      ERROR("Failed to submit fake sever initial to client instance: %s\n",
-            ngtcp2_strerror(result));
-      goto nghq_client_fail_conn;
-    }
-
-    /* Fake handshake for multicast */
-    uint8_t *fake_server_handshake;
-    size_t len_server_hs = get_fake_server_handshake_packet (
-        session->session_id, session->session_id_len, 1, &session->t_params,
-        &fake_server_handshake);
-    result = ngtcp2_conn_read_pkt (session->ngtcp2_session, &session->tcp2_path,
-                                   fake_server_handshake, len_server_hs,
-                                   get_timestamp_now());
-    free (fake_server_handshake);
-
-    if (result < 0) {
-      ERROR("Failed to submit fake server handshake to client instance: %s\n",
-            ngtcp2_strerror(result));
-      goto nghq_client_fail_conn;
-    }
-
-    ngtcp2_conn_submit_crypto_data(session->ngtcp2_session,
-                                   NGTCP2_CRYPTO_LEVEL_HANDSHAKE,
-                                   quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
-
-    ngtcp2_conn_handshake_completed (session->ngtcp2_session);
-
-    result = ngtcp2_conn_install_key (session->ngtcp2_session, quic_mcast_magic,
-                                      quic_mcast_magic, quic_mcast_magic,
-                                      quic_mcast_magic, quic_mcast_magic,
-                                      quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC,
-                                      LENGTH_QUIC_MCAST_MAGIC);
-    if (result != 0) {
-      ERROR("ngtcp2_conn_install_key: %s\n", ngtcp2_strerror(result));
-    }
-
-    nghq_stream* stream0 = nghq_req_stream_new (session);
-    if (stream0 == NULL) {
-      goto nghq_client_fail_conn;
-    }
-    nghq_io_buf* frame = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
-    frame->send_pos = frame->buf = malloc(2);
-    frame->buf[0] = 0x0a; /* Stream frame with length */
-    frame->buf[1] = 0; /* Length = 0 */
-    frame->buf_len = 2;
-    frame->complete = 0;
-    frame->next_buf = NULL;
-    frame->offset = 0;
-    frame->remaining = 0;
-
-    nghq_io_buf_push(&stream0->send_buf, frame);
-
-    result = nghq_session_send (session);
-    if (result < 0) {
-      ERROR("Failed to open stream 0");
-      goto nghq_client_fail_conn;
-    }
-
-    if (!ngtcp2_conn_get_handshake_completed(session->ngtcp2_session)) {
-      ERROR("Handshake is not complete!\n");
-      goto nghq_client_fail_conn;
-    }
-  }
-#endif
+  session->handshake_complete = 1;
 
   return session;
 
-nghq_client_fail_conn:
-  ngtcp2_conn_del(session->ngtcp2_session);
 nghq_client_fail_session:
   free(session);
 
@@ -484,246 +195,18 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
   nghq_session *session = _nghq_session_new_common (callbacks, settings,
                                                     transport,
                                                     session_user_data);
-  int result;
-  int64_t control_stream;
-
   if (session != NULL) {
     session->role = NGHQ_ROLE_SERVER;
   }
 
   if (_nghq_start_session(session, transport) != NGHQ_OK) {
-    free (session);
-    return NULL;
-  }
-#if REMOVE_NGTCP2
-  /*nghq_stream* req_stream = nghq_stream_new(NGHQ_PUSH_PROMISE_STREAM);
-  nghq_stream_id_map_add(session->transfers, req_stream->stream_id, req_stream);*/
-  nghq_stream* control = nghq_open_stream(session, NGHQ_STREAM_SERVER_UNI);
-  //nghq_stream_id_map_add(session->transfers, control->stream_id, control);
-  session->handshake_complete = 1;
-#else
-  /*
-   * FROM THE NGTCP2 DOCS:
-   * In order to make handshake work for server application, at least the
-   * following fields of ``ngtcp2_conn_callbacks`` must be set:
-   *
-   * * recv_client_initial
-   * * recv_crypto_data
-   * * in_encrypt
-   * * in_decrypt
-   * * encrypt
-   * * decrypt
-   * * in_encrypt_pn
-   * * encrypt_pn
-   * * acked_crypto_offset
-   * * rand
-   * * get_new_connection_id
-   * * update_key
-   */
-  ngtcp2_conn_callbacks tcp2_callbacks = {
-    .client_initial = NULL,
-    .recv_client_initial = nghq_transport_recv_client_initial,
-    .recv_crypto_data = nghq_transport_recv_crypto_data,
-    .handshake_completed = nghq_transport_handshake_completed,
-    .recv_version_negotiation = nghq_transport_recv_version_negotiation,
-    .encrypt = nghq_transport_encrypt,
-    .decrypt = nghq_transport_decrypt,
-    .hp_mask = nghq_transport_hp_mask, /*TODO - nghq_transport_hp_mask?*/
-    .recv_stream_data = nghq_transport_recv_stream_data,
-    .acked_crypto_offset = nghq_transport_acked_crypto_offset,
-    .acked_stream_data_offset = nghq_transport_acked_stream_data_offset,
-    .stream_open = nghq_transport_stream_open,
-    .stream_close = nghq_transport_stream_close,
-    .recv_stateless_reset = nghq_transport_recv_stateless_reset,
-    .recv_retry = NULL, /*TODO?!?*/
-    .extend_max_local_streams_bidi = nghq_transport_extend_max_stream_id,
-    .extend_max_local_streams_uni = nghq_transport_extend_max_stream_id,
-    .rand = NULL, /*TODO!*/
-    .get_new_connection_id = NULL, /* TODO- fail connection if received? */
-    .remove_connection_id = NULL, /* TODO - fail connection if received? */
-    .update_key = NULL, /* TODO?!? */
-    .path_validation = NULL, /* Banned by our profile, do we need a wrapper? */
-    .select_preferred_addr = NULL, /* TODO? */
-    .stream_reset = nghq_transport_stream_reset, /*TODO?*/
-    .extend_max_remote_streams_bidi = nghq_transport_extend_max_stream_id,
-    .extend_max_remote_streams_uni = nghq_transport_extend_max_stream_id,
-    .extend_max_stream_data = NULL
-  };
-
-  ngtcp2_settings tcp2_settings;
-  tcp2_settings.initial_ts = get_timestamp_now();
-  tcp2_settings.log_printf = nghq_transport_debug;
-  tcp2_settings.max_stream_data_bidi_local = 256 * 1024;
-  tcp2_settings.max_stream_data_bidi_remote = 256 * 1024;
-  tcp2_settings.max_stream_data_uni = (transport->max_stream_data)?
-      (transport->max_stream_data):(256 * 1024);
-  tcp2_settings.max_data = (transport->max_data)?(transport->max_data):
-                               (1 * 1024 * 1024);
-  tcp2_settings.max_streams_bidi = session->max_open_requests;
-  tcp2_settings.max_streams_uni = session->max_open_server_pushes;
-  tcp2_settings.idle_timeout = transport->idle_timeout;
-  tcp2_settings.max_packet_size = session->t_params.max_packet_size +
-        session->session_id_len + NGHQ_FRAME_OVERHEADS;
-  tcp2_settings.ack_delay_exponent = NGTCP2_DEFAULT_ACK_DELAY_EXPONENT;
-  tcp2_settings.flags = NGTCP2_SETTINGS_FLAG_UNORDERED_DATA;
-
-  ngtcp2_cid dcid_session_id;
-  dcid_session_id.datalen = session->session_id_len;
-  memcpy (dcid_session_id.data, session->session_id, session->session_id_len);
-  ngtcp2_cid scid;
-  scid.datalen = FAKE_SERVER_HANDSHAKE_SCID_LEN;
-  memcpy (scid.data, fake_server_handshake_scid, FAKE_SERVER_HANDSHAKE_SCID_LEN);
-
-  result = ngtcp2_conn_server_new(&session->ngtcp2_session, &dcid_session_id,
-                                  &scid, &session->tcp2_path,
-                                  NGTCP2_PROTO_VER, &tcp2_callbacks,
-                                  &tcp2_settings, NULL, (void *) session);
-  if (result != 0) {
-    ERROR("ngtcp2_conn_server_new failed with error %d", result);
     goto nghq_srv_fail_session;
   }
 
-  if (session->mode == NGHQ_MODE_MULTICAST) {
-    ngtcp2_pkt_hd hd;
-    uint8_t *in_buf, out_pkt[1000];
-    size_t len_client_init;
+  session->handshake_complete = 1;
 
-    len_client_init = get_fake_client_initial_packet (session->session_id,
-                                                      session->session_id_len,
-                                                      0, &session->t_params,
-                                                      &in_buf);
-
-    result = ngtcp2_accept(&hd, in_buf, len_client_init);
-    if (result < 0) {
-      ERROR("The fake client initial packet was not accepted by ngtcp2: %s\n",
-            ngtcp2_strerror(result));
-      goto nghq_srv_fail_conn;
-    }
-
-    result = ngtcp2_conn_read_pkt (session->ngtcp2_session, &session->tcp2_path,
-                                   in_buf, len_client_init,
-                                   get_timestamp_now());
-    free (in_buf);
-    if (result < 0) {
-      ERROR("ngtcp2_conn_read_pkt encountered an error: %s\n",
-            ngtcp2_strerror(result));
-      goto nghq_srv_fail_conn;
-    }
-    result = ngtcp2_conn_install_handshake_key (session->ngtcp2_session,
-                                                quic_mcast_magic, quic_mcast_magic,
-                                                quic_mcast_magic, quic_mcast_magic,
-                                                quic_mcast_magic, quic_mcast_magic,
-                                                LENGTH_QUIC_MCAST_MAGIC,
-                                                LENGTH_QUIC_MCAST_MAGIC);
-    if (result < 0) {
-      ERROR("ngtcp2_conn_install_handshake_key encountered an error: %s\n",
-            ngtcp2_strerror(result));
-      goto nghq_srv_fail_conn;
-    }
-
-    result = ngtcp2_conn_install_key (session->ngtcp2_session, quic_mcast_magic,
-                                      quic_mcast_magic, quic_mcast_magic,
-                                      quic_mcast_magic, quic_mcast_magic,
-                                      quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC,
-                                      LENGTH_QUIC_MCAST_MAGIC);
-    if (result != 0) {
-      ERROR("ngtcp2_conn_install_key: %s\n", ngtcp2_strerror(result));
-      goto nghq_srv_fail_conn;
-    }
-
-    ngtcp2_conn_submit_crypto_data(session->ngtcp2_session,
-                                   NGTCP2_CRYPTO_LEVEL_INITIAL,
-                                   quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
-    ngtcp2_conn_submit_crypto_data(session->ngtcp2_session,
-                                   NGTCP2_CRYPTO_LEVEL_HANDSHAKE,
-                                   quic_mcast_magic, LENGTH_QUIC_MCAST_MAGIC);
-
-    memset (out_pkt, 0, 1000);
-    ssize_t written = -1;
-    while (written != 0) {
-      written = ngtcp2_conn_write_pkt(session->ngtcp2_session,
-                                      &session->tcp2_path, out_pkt, 1000,
-                                      get_timestamp_now());
-      if (written < 0) {
-        ERROR("ngtcp2_conn_write_pkt Couldn't write handshake: %s\n",
-              ngtcp2_strerror(result));
-        goto nghq_srv_fail_conn;
-      }
-    }
-
-    ngtcp2_conn_handshake_completed (session->ngtcp2_session);
-
-    /* This stops ngtcp2 from complaining */
-    ngtcp2_conn_set_aead_overhead(session->ngtcp2_session, 0);
-
-    uint8_t *strm0pkt;
-    size_t len_strm0_pkt = get_fake_client_stream_0_packet (session->session_id,
-                                                        session->session_id_len,
-                                                        1, &strm0pkt);
-    result = ngtcp2_conn_read_pkt(session->ngtcp2_session, &session->tcp2_path,
-                                  strm0pkt, len_strm0_pkt, get_timestamp_now());
-
-    free (strm0pkt);
-    if (result < 0) {
-      ERROR("Failed to read stream 0 packet: %s\n",
-            ngtcp2_strerror((int) result));
-      goto nghq_srv_fail_conn;
-    }
-
-    if (!ngtcp2_conn_get_handshake_completed(session->ngtcp2_session)) {
-      ERROR("Handshake is not complete!\n");
-      goto nghq_srv_fail_conn;
-    }
-
-    /* Force out those pesky ACKs by giving stream 0 something to "send", so
-     * ngtcp2 creates the ACK frame here before we have any actual data to send.
-     * The fake data is a zero-length DATA frame which is technically not
-     * allowed, but as we never actually send anything on-the-wire, it shouldn't
-     * matter.
-     */
-    nghq_stream* stream0 = nghq_stream_id_map_find(session->transfers, 0);
-    if (stream0 == NULL) {
-      ERROR("Couldn't find stream 0!");
-    }
-
-    nghq_io_buf* frame = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
-    frame->send_pos = frame->buf = malloc(2);
-    frame->buf[0] = 0x0a; /* Stream frame with length */
-    frame->buf[1] = 0; /* Length = 0 */
-    frame->buf_len = 2;
-    frame->complete = 0;
-    frame->next_buf = NULL;
-    frame->offset = 0;
-    frame->remaining = 0;
-
-    nghq_io_buf_push(&stream0->send_buf, frame);
-
-    nghq_session_send(session);
-
-    session->handshake_complete = 1;
-  }
-
-  /* Open a server control channel */
-  nghq_stream* control = nghq_stream_new(NGHQ_CONTROL_SERVER);
-  result = ngtcp2_conn_open_uni_stream(session->ngtcp2_session, &control_stream,
-                                   (void *) control);
-  if (control_stream != NGHQ_CONTROL_SERVER) {
-    /* This must never happen, the server control MUST be on 3! */
-    ERROR("Couldn't open server control stream 3: %s\n",
-          ngtcp2_strerror(result));
-    goto nghq_srv_fail_conn;
-  }
-  nghq_stream_id_map_add(session->transfers, control->stream_id, control);
-
-  /* TODO: Send a SETTINGS frame */
-
-  DEBUG("Created new server ngtcp2_conn: %p\n",
-        (void *) session->ngtcp2_session);
-#endif
   return session;
 
-nghq_srv_fail_conn:
-  ngtcp2_conn_del(session->ngtcp2_session);
 nghq_srv_fail_session:
   free(session);
 
@@ -775,29 +258,9 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
         nghq_stream_close(session, init_req_stream, QUIC_ERR_HTTP_REQUEST_CANCELLED);
       }
     }
-  } else if (session->mode == NGHQ_MODE_UNICAST) {
-    uint8_t* closebuf;
-    ssize_t rv;
-    closebuf = (uint8_t *) malloc (session->transport_settings.max_packet_size);
-    rv = ngtcp2_conn_write_connection_close (session->ngtcp2_session,
-           &session->tcp2_path, closebuf,
-           session->transport_settings.max_packet_size, 0, get_timestamp_now());
-    if (rv < 0) {
-      switch (rv) {
-        case NGTCP2_ERR_NOMEM:
-          return NGHQ_OUT_OF_MEMORY;
-        case NGTCP2_ERR_NOBUF:
-        case NGTCP2_ERR_CALLBACK_FAILURE:
-          return NGHQ_INTERNAL_ERROR;
-        case NGTCP2_ERR_INVALID_STATE:
-          return NGHQ_SESSION_CLOSED;
-        case NGTCP2_ERR_PKT_NUM_EXHAUSTED:
-          return NGHQ_TRANSPORT_PROTOCOL;
-        default:
-          return NGHQ_ERROR;
-      }
-    }
-    nghq_io_buf_new(&session->send_buf, closebuf, rv, 1, 0);
+  } else {
+    /* TODO, should we ever make a unicast version. */
+    return NGHQ_NOT_IMPLEMENTED;
   }
 
   return NGHQ_OK;
@@ -821,9 +284,6 @@ int nghq_session_free (nghq_session *session) {
   nghq_free_hdr_compression_ctx (session->hdr_ctx);
   nghq_io_buf_clear (&session->send_buf);
   nghq_io_buf_clear (&session->recv_buf);
-#if !REMOVE_NGTCP2
-  ngtcp2_conn_del (session->ngtcp2_session);
-#endif
   free (session);
   return NGHQ_OK;
 }
@@ -833,6 +293,10 @@ int nghq_session_free (nghq_session *session) {
 int nghq_session_recv (nghq_session *session) {
   int recv = 1;
   int rv = NGHQ_NO_MORE_DATA;
+
+  if (nghq_check_timeout(session) == NGHQ_TRANSPORT_TIMEOUT) {
+    return NGHQ_TRANSPORT_TIMEOUT;
+  }
 
   while (recv) {
     uint8_t* buf;
@@ -866,56 +330,30 @@ int nghq_session_recv (nghq_session *session) {
   }
 
   while (session->recv_buf != NULL) {
-#if REMOVE_NGTCP2
     rv = quic_transport_packet_parse (session, session->recv_buf->buf,
                                       session->recv_buf->buf_len,
                                       get_timestamp_now());
-#else
-    rv = ngtcp2_conn_read_pkt (session->ngtcp2_session, &session->tcp2_path,
-                               session->recv_buf->buf,
-                               session->recv_buf->buf_len, get_timestamp_now());
-#endif
     free (session->recv_buf->buf);
     nghq_io_buf *pop = session->recv_buf;
     session->recv_buf = session->recv_buf->next_buf;
     free (pop);
 
     if (rv != 0) {
-      ERROR("ngtcp2_conn_read_pkt returned error %s\n", ngtcp2_strerror(rv));
-      if (rv == NGTCP2_ERR_TLS_DECRYPT) {
-        return NGHQ_CRYPTO_ERROR;
-      }
-      return NGHQ_ERROR;
+      ERROR("quic_transport_packet_parse returned error %s\n",
+            nghq_strerror(rv));
+      return rv;
     }
 
-    _update_timers(session);
+    nghq_update_timeout (session);
 
     rv = NGHQ_OK;
-#if !REMOVE_NGTCP2
-    if (ngtcp2_conn_is_in_draining_period(session->ngtcp2_session)) {
-      return NGHQ_SESSION_CLOSED;
-    }
-#endif
   }
 
   return rv;
 }
 
-/* TODO: Make this more scalable? Copied from client.cc in ngtcp2 examples */
-#define MAX_BYTES_IN_FLIGHT 1460 * 10
-
 int nghq_session_send (nghq_session *session) {
   int rv = NGHQ_NO_MORE_DATA;
-#if !REMOVE_NGTCP2
-  if (ngtcp2_conn_get_bytes_in_flight(session->ngtcp2_session) >=
-      MAX_BYTES_IN_FLIGHT) {
-    if (rv == NGHQ_NO_MORE_DATA) {
-      DEBUG("Too many bytes in flight, session blocked\n");
-      return NGHQ_SESSION_BLOCKED;
-    }
-  }
-#endif
-  rv = nghq_write_send_buffer (session);
 
   /*
    * Go through all the streams and grab any packets that need sending
@@ -927,15 +365,6 @@ int nghq_session_send (nghq_session *session) {
    */
   nghq_stream *it = nghq_stream_id_map_find(session->transfers, 0);
   while ((rv != NGHQ_ERROR) && (rv != NGHQ_EOF)) {
-#if !REMOVE_NGTCP2
-    if (ngtcp2_conn_get_bytes_in_flight(session->ngtcp2_session) >=
-        MAX_BYTES_IN_FLIGHT) {
-      if (rv == NGHQ_NO_MORE_DATA) {
-        return NGHQ_SESSION_BLOCKED;
-      }
-      break;
-    }
-#endif
 
     while (it->send_buf == NULL) {
       it = nghq_stream_id_map_iterator(session->transfers, it);
@@ -974,21 +403,12 @@ int nghq_session_send (nghq_session *session) {
       free_buffer = 1;
       next_buf = next_buf->next_buf;
     }
-#if REMOVE_NGTCP2
-    ssize_t pkt_len = quic_transport_write_stream(session, it,
-                                                  buffer, buf_len,
-                                                  new_pkt->buf,
-                                                  new_pkt->buf_len, last_data,
-                                                  &sent);
-    //if (pkt_len > 0) sent = pkt_len;
-#else
     ssize_t pkt_len = ngtcp2_conn_write_stream(session->ngtcp2_session,
                                                &session->tcp2_path,
                                                new_pkt->buf, new_pkt->buf_len,
                                                &sent, 0, it->stream_id,
                                                last_data, buffer, buf_len,
                                                get_timestamp_now());
-#endif
     if (free_buffer) free(buffer);
 
     if (pkt_len < 0) {
@@ -1056,107 +476,13 @@ int nghq_session_send (nghq_session *session) {
   return rv;
 }
 
-static int _transport_params_initial_size = 128;
-
 ssize_t nghq_get_transport_params (nghq_session *session, uint8_t **buf) {
-  ngtcp2_transport_params params;
-  ngtcp2_transport_params_type param_type;
-  ssize_t actual_size;
-
-  if (session == NULL) {
-    return NGHQ_SESSION_CLOSED;
-  }
-
-  if (session->role == NGHQ_ROLE_CLIENT) {
-    param_type = NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO;
-  } else if (session->role == NGHQ_ROLE_SERVER) {
-    param_type = NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS;
-  }
-
-  ngtcp2_conn_get_local_transport_params(session->ngtcp2_session, &params);
-
-  if (session->mode == NGHQ_MODE_MULTICAST) {
-    params.initial_max_streams_uni = 0x3fffffff;
-    params.initial_max_streams_bidi = NGHQ_INIT_REQUEST_STREAM_ID;
-    params.active_connection_id_limit = 0;
-  }
-
-  *buf = (uint8_t *) malloc (_transport_params_initial_size);
-  if (*buf == NULL) {
-    return NGHQ_OUT_OF_MEMORY;
-  }
-
-  actual_size = ngtcp2_encode_transport_params(*buf,
-                                               _transport_params_initial_size,
-                                               param_type, &params);
-
-  while (actual_size == NGTCP2_ERR_NOBUF) {
-    if (_transport_params_initial_size == 512) {
-      free (*buf);
-      return NGHQ_INTERNAL_ERROR;
-    }
-    _transport_params_initial_size *= 2;
-    *buf = (uint8_t *) realloc (*buf, _transport_params_initial_size);
-    if (*buf == NULL) {
-      return NGHQ_OUT_OF_MEMORY;
-    }
-    actual_size = ngtcp2_encode_transport_params(*buf,
-                                                 _transport_params_initial_size,
-                                                 param_type, &params);
-  }
-
-  *buf = (uint8_t *) realloc (*buf, actual_size);
-
-  return actual_size;
+  return NGHQ_NOT_IMPLEMENTED;
 }
 
 int nghq_feed_transport_params (nghq_session *session, const uint8_t *buf,
                                 size_t buflen) {
-  int rv = NGTCP2_ERR_FATAL;
-  ngtcp2_transport_params params;
-  ngtcp2_transport_params_type param_type;
-
-  if (session == NULL) {
-    return NGHQ_SESSION_CLOSED;
-  }
-
-  if (session->role == NGHQ_ROLE_SERVER) {
-    param_type = NGTCP2_TRANSPORT_PARAMS_TYPE_CLIENT_HELLO;
-  } else if (session->role == NGHQ_ROLE_CLIENT) {
-    param_type = NGTCP2_TRANSPORT_PARAMS_TYPE_ENCRYPTED_EXTENSIONS;
-  }
-
-  rv = ngtcp2_decode_transport_params(&params, param_type, buf, buflen);
-
-  if (rv != 0) {
-    ERROR("ngtcp2_decode_transport_params failed: %s\n", ngtcp2_strerror(rv));
-    return NGHQ_TRANSPORT_PROTOCOL;
-  }
-
-  DEBUG("Multicast transport parameters from \"remote\" set as:\n"
-        "\tinitial_max_stream_data...bidi_local: %u, bidi_remote: %u, uni: %u\n"
-        "\tinitial_max_data: %u\n\tinitial_max_streams_bidi: %u\n"
-        "\tinitial_max_streams_uni: %u\n\tidle_timeout: %u\n"
-        "\tmax_packet_size: %u\n\tack_delay_exponent: %u\n",
-        params.initial_max_stream_data_bidi_local,
-        params.initial_max_stream_data_bidi_remote,
-        params.initial_max_stream_data_uni, params.initial_max_data,
-        params.initial_max_streams_bidi, params.initial_max_streams_uni,
-        params.idle_timeout, params.max_packet_size, params.ack_delay_exponent);
-
-  rv = ngtcp2_conn_set_remote_transport_params(session->ngtcp2_session,
-                                               &params);
-
-  if (rv != 0) {
-    ERROR("ngtcp2_conn_set_remote_transport_params failed: %s\n",
-          ngtcp2_strerror(rv));
-    switch (rv) {
-      case NGTCP2_ERR_PROTO:
-        return NGHQ_TRANSPORT_PROTOCOL;
-    }
-  }
-
-  return NGHQ_OK;
+  return NGHQ_NOT_IMPLEMENTED;
 }
 
 int nghq_submit_request (nghq_session *session, const nghq_header **hdrs,
@@ -1359,14 +685,6 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
     }
 
     stream = nghq_stream_id_map_find(session->promises, push_id);
-#if !REMOVE_NGTCP2
-    rv = ngtcp2_conn_open_uni_stream(session->ngtcp2_session, &stream_id,
-                                     (void *) stream);
-    if (rv < 0) {
-      ERROR("ngtcp2_conn_open_uni_stream failed: %s", ngtcp2_strerror(rv));
-      return NGHQ_INTERNAL_ERROR;
-    }
-#endif
     stream->stream_id = new_stream_id;
     stream->send_state = STATE_HDRS;
     stream->user_data = request_user_data;
@@ -2281,13 +1599,7 @@ int nghq_write_send_buffer (nghq_session* session) {
         break;
       }
     }
-#if !REMOVE_NGTCP2
-    if ((session->mode == NGHQ_MODE_MULTICAST) &&
-        (session->role != NGHQ_ROLE_CLIENT)) {
-        nghq_mcast_fake_ack (session, session->send_buf->buf,
-                             session->send_buf->buf_len);
-    }
-#endif
+
     free (session->send_buf->buf);
     nghq_io_buf *pop = session->send_buf;
     session->send_buf = session->send_buf->next_buf;
@@ -2300,17 +1612,15 @@ int nghq_write_send_buffer (nghq_session* session) {
 
 /*
  * Call this method if you want to stop a stream that is currently running.
- *
- * If error is non-zero, then it's reported to ngtcp2 that it's closing for
- * an internal error, instead of just closing the stream ID.
  */
 int nghq_stream_cancel (nghq_session* session, nghq_stream *stream, int error) {
   uint16_t app_error_code = QUIC_ERR_HTTP_NO_ERROR;
   if (error) {
     app_error_code = QUIC_ERR_HTTP_INTERNAL_ERROR;
   }
-  return ngtcp2_conn_shutdown_stream (session->ngtcp2_session,
-                                      stream->stream_id, app_error_code);
+
+  nghq_stream_id_map_remove (session->transfers, stream->stream_id);
+  return nghq_stream_ended (session, stream);
 }
 
 /*
@@ -2341,7 +1651,6 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
 
   switch (app_error_code) {
     case QUIC_ERR_STOPPING:
-      /* TODO: ngtcp2 currently uses 0 to mean closed nicely, not STOPPING */
       break;
     case QUIC_ERR_HTTP_NO_ERROR:
       /* Shutting down normally */
@@ -2409,174 +1718,7 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
 }
 
 int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id) {
-  return NGHQ_OK;
-}
-
-static uint64_t _pkt_num_mask(uint64_t pkt_num) {
-  if (pkt_num < 0x100) return UINT64_C(0xff);
-  if (pkt_num < 0x10000) return UINT64_C(0xffff);
-  return UINT64_C(0xffffffff);
-}
-
-static uint64_t _calc_pkt_number (nghq_session* session, uint64_t pkt_num) {
-  uint64_t rv = pkt_num;
-  if (rv < session->last_remote_pkt_num) {
-    uint64_t mask = _pkt_num_mask(pkt_num);
-    rv |= session->last_remote_pkt_num & ~mask;
-    if (rv < session->last_remote_pkt_num) rv += mask + 1;
-  }
-  session->last_remote_pkt_num = rv;
-  return rv;
-}
-
-int nghq_get_packet_number (uint64_t *pktnum, uint8_t *pkt, size_t pkt_len,
-                            size_t session_id_len)
-{
-  int rv = NGHQ_ERROR;
-  if (pkt[0] & 0x80) {
-    /* Long header:
-     * +-+-+-+-+-+-+-+-+
-     * |1|1|T T|R R|P P|  Long header
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |                         Version (32)                          |
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * | DCID Len (8)  |
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |               Destination Connection ID (0..160)            ...
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * | SCID Len (8)  |
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |                 Source Connection ID (0..160)               ...
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |                         Token Length (i)                    ...
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |                            Token (*)                        ...
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |                           Length (i)                        ...
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |                    Packet Number (8/16/24/32)               ...
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     */
-    uint32_t version = get_uint32_from_buf (pkt + 1);
-    if (version == 0) {
-      /* Version negotiation packet with no packet number */
-      return NGHQ_TRANSPORT_VERSION;
-    }
-    size_t offset = 6 + (size_t) pkt[5]; /* DCID Len */
-    size_t bytes_needed = 0;
-    offset += pkt[offset] + 1; /* SCID Len + SCID Len field */
-    offset += (size_t) _get_varlen_int (pkt + offset, &bytes_needed,
-                                        pkt_len - offset);
-    offset += bytes_needed;
-    _get_varlen_int (pkt + offset, &offset, pkt_len - offset);
-    *pktnum = get_packet_number (pkt[0], pkt + offset);
-    rv = NGHQ_OK;
-  } else {
-    /* Short header
-     * +-+-+-+-+-+-+-+-+
-     * |0|1|S|R|R|K|P P|
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |                Destination Connection ID (0..160)           ...
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     * |                   Packet Number (8/16/24/32)                ...
-     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     */
-    *pktnum = get_packet_number (pkt[0], pkt + session_id_len + 1);
-    rv = NGHQ_OK;
-  }
-  return rv;
-}
-
-/*
- *  0                   1                   2                   3
- *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- * +-+-+-+-+-+-+-+-+
- * |0|1|S|R|R|K|P P|
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                Destination Connection ID (0..160)           ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                     Packet Number (8/16/24/32)              ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                      Frame Type: ACK (0x02)                 ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                     Largest Acknowledged (i)                ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                          ACK Delay (i)                      ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                       ACK Range Count (i)                   ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                       First ACK Range (i)                   ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                          ACK Ranges (*)                     ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                          [ECN Counts]                       ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- */
-
-void nghq_mcast_fake_ack (nghq_session* session, uint8_t *pkt, size_t pkt_len) {
-  /*
-   * Generate a fake ACK to feed back into ngtcp2 to keep it happy that
-   * everything sent has been successfully received.
-   */
-  nghq_io_buf *fake = (nghq_io_buf *) malloc (sizeof(nghq_io_buf));
-  if (fake == NULL) {
-    return;
-  }
-  uint64_t real_pkt_num;
-  if (nghq_get_packet_number (&real_pkt_num, pkt, pkt_len,
-                              session->session_id_len) != NGHQ_OK) {
-    ERROR("Failed to get packet number from source packet to be sent\n");
-    return;
-  }
-  DEBUG("In-packet packet number of %lu", real_pkt_num);
-  real_pkt_num = _calc_pkt_number(session, real_pkt_num);
-
-  DEBUG("Calculated real packet number of %lu", real_pkt_num);
-
-  /* 1 byte for the fixed header byte, 1 byte for the packet number */
-  uint64_t offset, acklen, headerlen = 2;
-  if (session->role == NGHQ_ROLE_SERVER) {
-    headerlen += FAKE_SERVER_HANDSHAKE_SCID_LEN;
-  } else {
-    headerlen += session->session_id_len;
-  }
-  acklen = _make_varlen_int(NULL, 0x02);         /* Frame type: ACK */
-  acklen += _make_varlen_int(NULL, real_pkt_num); /* Largest Acknowledged */
-  acklen += _make_varlen_int(NULL, 0);            /* ACK Delay */
-  acklen += _make_varlen_int(NULL, 0);            /* ACK Range Count */
-  acklen += _make_varlen_int(NULL, 0);            /* First ACK Range */
-
-  /* Minimum packet size as far as ngtcp2 is concerned for header protection
-   * reasons */
-  if (acklen < 16) {
-    acklen = 16;
-  }
-
-  fake->buf = (uint8_t *) malloc (headerlen + acklen);
-  if (fake->buf == NULL) {
-    free (fake);
-    return;
-  }
-  fake->buf_len = headerlen + acklen;
-  memset (fake->buf, 0, fake->buf_len);
-
-  fake->buf[0] = 0x40;
-  if (session->role == NGHQ_ROLE_SERVER) {
-    memcpy (fake->buf + 1, fake_server_handshake_scid,
-            FAKE_SERVER_HANDSHAKE_SCID_LEN);
-    offset = 1 + FAKE_SERVER_HANDSHAKE_SCID_LEN;
-  } else {
-    memcpy (fake->buf + 1, session->session_id, session->session_id_len);
-    offset = 1 + session->session_id_len;
-  }
-  fake->buf[offset++] = session->remote_pktnum++;
-  offset += _make_varlen_int(fake->buf + offset, 0x02);
-  offset += _make_varlen_int(fake->buf + offset, real_pkt_num);
-  offset += _make_varlen_int(fake->buf + offset, 0); /* ACK Delay */
-  offset += _make_varlen_int(fake->buf + offset, 0); /* ACK Block Count */
-  offset += _make_varlen_int(fake->buf + offset, 0); /* First ACK Block */
-
-  nghq_io_buf_push (&session->recv_buf, fake);
+  return NGHQ_NOT_IMPLEMENTED;
 }
 
 nghq_stream *nghq_stream_new (uint64_t stream_id) {
@@ -2587,51 +1729,6 @@ nghq_stream *nghq_stream_new (uint64_t stream_id) {
   stream->stream_id = stream_id;
   return stream;
 }
-
-#if 0
-nghq_stream *nghq_req_stream_new(nghq_session* session) {
-  int result;
-  nghq_stream *stream = nghq_stream_init();
-  if (stream == NULL) {
-    return NULL;
-  }
-
-#if REMOVE_NGTCP2
-  int64_t new_stream_id = quic_transport_open_stream(session,
-                                                     NGHQ_STREAM_CLIENT_BIDI);
-  if (new_stream_id < NGHQ_OK) {
-    ERROR("Failed to open new request stream\n");
-    free (stream);
-    return NULL;
-  }
-  stream->stream_id = new_stream_id;
-#else
-  result = ngtcp2_conn_open_bidi_stream(session->ngtcp2_session,
-                                        &stream->stream_id, stream);
-
-  if (result != 0) {
-    ERROR("ngtcp2_conn_open_bidi_stream failed with %s\n",
-          ngtcp2_strerror(result));
-    free (stream);
-    return NULL;
-  }
-#endif
-
-  result = nghq_stream_id_map_add (session->transfers, stream->stream_id,
-                                   stream);
-  if (result != 0) {
-    ERROR("Failed to add new stream %lu to map\n", stream->stream_id);
-#if !REMOVE_NGTCP2
-    ngtcp2_conn_shutdown_stream(session->ngtcp2_session, stream->stream_id,
-                                0x01); /* Internal Error code */
-#endif
-    free (stream);
-    return NULL;
-  }
-
-  return stream;
-}
-#endif
 
 nghq_stream *nghq_req_stream_new (nghq_session* session) {
   return nghq_open_stream (session, NGHQ_STREAM_CLIENT_BIDI);
@@ -2673,11 +1770,7 @@ static const struct alpn_name * const _draft22_alpns[] = {
 
 static const struct alpn_name * const *_get_alpn_protocols()
 {
-#if NGTCP2_PROTO_VER_MAX == 0xff000016u
     return _draft22_alpns;
-#else
-    return NULL;
-#endif
 }
 
 ssize_t nghq_select_alpn (nghq_session *session, const uint8_t *buf,

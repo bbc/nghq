@@ -52,6 +52,7 @@ typedef enum {
   NGHQ_ERROR = -1,
   NGHQ_INTERNAL_ERROR = -2,
   NGHQ_OUT_OF_MEMORY = -3,
+  NGHQ_NOT_IMPLEMENTED = -4,
   /* Connection errors */
   NGHQ_INCOMPATIBLE_METHOD = -10,
   NGHQ_TOO_MUCH_DATA = -11,
@@ -85,7 +86,7 @@ typedef enum {
   NGHQ_HTTP_MALFORMED_FRAME = -73,
   NGHQ_HTTP_PUSH_REFUSED = -74,
   NGHQ_HTTP_ALPN_FAILED = -75,
-  /* QUIC Transport / ngtcp2 errors */
+  /* QUIC Transport errors */
   NGHQ_TRANSPORT_ERROR = -100,
   NGHQ_TRANSPORT_CLOSED = -101,
   NGHQ_TRANSPORT_FINAL_OFFSET = -102,
@@ -361,18 +362,13 @@ extern ssize_t nghq_select_alpn (nghq_session *session,
  * During the TLS handshake the client needs to provide the server with an ALPN
  * string containing the protocol versions it can support. This function
  * returns an appropriate ALPN string describing the protocols supported by
- * this library at runtime. Note this is dependant upon which version of the
- * ngtcp2 library that has been (dynamically) linked.
- *
- * This function may return NGHQ_HTTP_ALPN_FAILED if the protocol version
- * supported by the linked ngtcp2 library is not understood.
+ * this library at runtime.
  *
  * @param alpn A pointer to the ALPN string to use or NULL to test the library
  *             compatibility.
  *
- * @return The size of the ALPN string in @p alpn
- * @return NGHQ_HTTP_ALPN_FAILED if the linked ngtcp2 library version is not
- *         compatible.
+ * @return The size of the ALPN string in @p alpn. If 0, then the provided ALPN
+ *              string was not compatible.
  */
 extern ssize_t nghq_get_alpn (const uint8_t **alpn);
 

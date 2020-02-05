@@ -32,8 +32,6 @@
 
 #include "frame_types.h"
 
-#include <ngtcp2/ngtcp2.h>
-
 /* forward declarations for unreferenced pointer types */
 struct nghq_map_ctx;
 typedef struct nghq_map_ctx nghq_map_ctx;
@@ -164,10 +162,8 @@ typedef enum {
   NGHQ_STREAM_SERVER_UNI = 3,
 } nghq_stream_type;
 
-struct nghq_session {
-  /* ngtcp2 tracking */
-  ngtcp2_conn*    ngtcp2_session;
 
+struct nghq_session {
   uint8_t*        session_id;
   size_t          session_id_len;
 
@@ -214,13 +210,6 @@ struct nghq_session {
 
   nghq_io_buf*  send_buf;
   nghq_io_buf*  recv_buf;
-
-  ngtcp2_tstamp conn_loss_tstamp;
-  void*         conn_loss_timer;
-  ngtcp2_tstamp conn_ack_tstamp;
-  void*         conn_ack_timer;
-
-  ngtcp2_path   tcp2_path;
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
@@ -244,10 +233,6 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
                        uint16_t app_error_code);
 
 int nghq_change_max_stream_id (nghq_session* session, uint64_t max_stream_id);
-
-int nghq_get_packet_number (uint64_t *pktnum, uint8_t *pkt, size_t pkt_len,
-                            size_t session_id_len);
-void nghq_mcast_fake_ack (nghq_session* session, uint8_t *pkt, size_t pkt_len);
 
 nghq_stream *nghq_stream_new (uint64_t stream_id);
 nghq_stream *nghq_req_stream_new(nghq_session* session);

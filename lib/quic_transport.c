@@ -9,7 +9,6 @@
 #include <stdbool.h>
 #include <assert.h>
 #include "quic_transport.h"
-#include "tcp2_callbacks.h"
 #include "util.h"
 #include "debug.h"
 
@@ -18,7 +17,14 @@
 
 ssize_t _parse_stream_frame (nghq_session *ctx, uint8_t stream_type,
                              uint8_t *buf, size_t len);
+/* TODO: Get this from the application? */
+static uint8_t _hp_mask[5] = {0, 0, 0, 0, 0};
+int _transport_hp_mask (nghq_session *ctx, uint8_t *dest, const uint8_t *hp_key,
+                        const uint8_t *sample);
 
+int _transport_recv_stream_data (nghq_session *session, int64_t stream_id,
+                                 int fin, uint64_t stream_offset,
+                                 const uint8_t *data, size_t datalen);
 size_t _write_quic_header (nghq_session *ctx, uint8_t *buf, size_t len);
 
 ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
@@ -40,8 +46,7 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
   off += ctx->session_id_len;
 
   /* Get the packet number, after removing potential packet protection */
-  nghq_transport_hp_mask (NULL, hp_mask, NULL, NULL, NULL,
-                          ctx->session_user_data);
+  _transport_hp_mask (ctx, hp_mask, NULL, NULL);
   buf[0] = buf[0] ^ (hp_mask[0] & 0x1f);
   pkt_num_len = (size_t)((buf[0] & NGHQ_PKT_NUMLEN_MASK) + 1);
 
@@ -126,8 +131,8 @@ ssize_t quic_transport_write_stream (nghq_session *ctx, nghq_stream *stream,
                                        ctx->session_user_data);
   if (rv != NGHQ_OK) return rv;
 
-  nghq_transport_hp_mask (NULL, hp_mask, NULL, NULL, NULL,
-                            ctx->session_user_data);
+  _transport_hp_mask (NULL, hp_mask, NULL, NULL, NULL,
+                      ctx->session_user_data);
   buf_in[0] = buf_in[0] ^ (hp_mask[0] & 0x1f);
   /* TODO: Make it possible for packet numbers to be > 1 byte */
   buf_in[1] = buf_in[1] ^ hp_mask[1];
@@ -189,9 +194,13 @@ ssize_t _parse_stream_frame (nghq_session *ctx, uint8_t stream_type,
   }
   fin = stream_type & 0x01;
 
-  rv = (ssize_t) nghq_transport_recv_stream_data (NULL, (int64_t) stream_id,
-                                                  fin, offset, buf+off, length,
-                                                  ctx, ctx->session_user_data);
+  if (length > len - off) {
+    ERROR("QUIC packet incomplete or bad\n");
+    return NGHQ_TRANSPORT_FRAME_FORMAT;
+  }
+
+  rv = (ssize_t) _transport_recv_stream_data (ctx, (int64_t) stream_id, fin,
+                                              offset, buf+off, length);
   if (rv < 0) return rv;
 
   return length + off;
@@ -206,3 +215,99 @@ size_t _write_quic_header (nghq_session *ctx, uint8_t *buf, size_t len) {
   buf[off++] = (uint8_t) ctx->rx_pkt_num++;
   return off;
 }
+
+/*
+ * A copy from nghq_transport_recv_stream_data in tcp2_callbacks with a slightly
+ * different interface, before the divorce from ngtcp2.
+ */
+int _transport_recv_stream_data (nghq_session *session, int64_t stream_id,
+                                 int fin, uint64_t stream_offset,
+                                 const uint8_t *data, size_t datalen) {
+  DEBUG ("_transport_recv_stream_data(%p, %lu, %x, data(%lu))\n",
+         (void *) session, stream_id, fin, datalen);
+  nghq_stream* stream = nghq_stream_id_map_find(session->transfers, stream_id);
+  nghq_stream_type stype = stream_id % 4;
+  size_t data_offset = 0;
+  int rv;
+
+  if (stream == NULL) {
+    /* New stream time! */
+    DEBUG("Seen start of new stream %lu\n", stream_id);
+    stream = nghq_stream_new(stream_id);
+    if (stream == NULL) {
+      return NGHQ_OUT_OF_MEMORY;
+    }
+    if (stream_id < session->next_stream_id[stype]) {
+      ERROR("New stream ID (%u) is less than the expected new stream ID (%u)",
+            stream_id,
+            ((session->next_stream_id[stype] * 4) + stype));
+      return NGHQ_TRANSPORT_BAD_STREAM_ID;
+    } else {
+      session->next_stream_id[stype] = (stream_id - stype) / 4;
+    }
+    nghq_stream_id_map_add(session->transfers, stream_id, stream);
+    if (CLIENT_REQUEST_STREAM(stream_id)) {
+      if ((stream_id == 0) && (session->mode == NGHQ_MODE_MULTICAST)) {
+        /*
+         * Don't feed the magic packet into nghq_recv_stream_data as it will
+         * upset it. Just return 0 so that stream 0 is at least open, ready
+         * to send our first PUSH_PROMISE
+         */
+        return 0;
+      }
+    }
+  }
+
+  if (SERVER_PUSH_STREAM(stream_id) && stream_offset==0 &&
+        (_get_varlen_int(data, &data_offset, datalen) == 0x1)) {
+    /* Find the server push stream! */
+    nghq_stream* push_stream;
+    uint64_t push_id = _get_varlen_int(data + data_offset, &data_offset, datalen);
+    if (data_offset > datalen) {
+      ERROR("Not enough data for push ID in stream data for stream %lu\n",
+            stream_id);
+      return NGHQ_ERROR;
+    }
+    push_stream = nghq_stream_id_map_find(session->promises, push_id);
+    if (push_stream == NULL) {
+      ERROR("Received new server push stream %lu, but Push ID %lu has not "
+            "been previously promised, or has already been started!\n",
+            stream_id, push_id);
+      return NGHQ_HTTP_BAD_PUSH;
+    }
+
+    /* copy over push information to stream */
+    stream->push_id = push_id;
+    stream->user_data = push_stream->user_data;
+
+    nghq_stream_id_map_remove(session->promises, push_id);
+    nghq_stream_ended(session, push_stream);
+
+    DEBUG("Server push stream %lu starts push promise %lu\n",
+          stream_id, push_id);
+  }
+
+  if (stream->stream_id != stream_id) {
+    ERROR ("Stream IDs do not match! (%ld != %ld)\n", stream->stream_id,
+           stream_id);
+    return NGHQ_INTERNAL_ERROR;
+  }
+
+  rv = nghq_recv_stream_data(session, stream, data, datalen, stream_offset,
+                             fin);
+
+  if (rv == NGHQ_NOT_INTERESTED) {
+    /* Client has indicated it doesn't care about this stream anymore, stop */
+    nghq_stream_cancel (session, stream, 0);
+  }
+  return rv;
+}
+
+int _transport_hp_mask (nghq_session *ctx, uint8_t *dest, const uint8_t *hp_key,
+                        const uint8_t *sample)
+{
+  /* TODO? */
+  memcpy (dest, _hp_mask, 5);
+  return 0;
+}
+

@@ -1,7 +1,6 @@
 # nghq
 
-**nghq** is a HTTP framing layer built on top of
-[ngtcp2](https://github.com/ngtcp2/ngtcp2) and aims to provide support for the
+**nghq** is a HTTP framing layer that aims to provide support for the
 HTTP/QUIC mapping for running HTTP over IETF QUIC.
 
 The **nghq** API is modelled after that of
@@ -38,11 +37,6 @@ In particular, it only supports [draft-ietf-quic-http-22](https://tools.ietf.org
 
 ## Getting Started
 
-**nghq** is currently designed to be built against a version of ngtcp2 that has
-quic-transport-draft-22 support. The branch on ngtcp2 is called [nghq-0.1.0-support](https://github.com/samhurst/ngtcp2/tree/nghq-0.1.0-support).
-
-    $ git clone --depth 1 -b nghq-0.1.0-support https://github.com/samhurst/ngtcp2.git
-
 If you wish to build and run the examples, you will also need
 [libev](http://software.schmorp.de/pkg/libev.html) version 4.0 or above.
 
@@ -58,7 +52,7 @@ The build system itself uses Automake. To build the software, do the following:
 
 To enable some fairly verbose debugging output from the library, you can supply
 the `--enable-debug` option to the configure script. This will write output
-from both nghq **and** ngtcp2 to the command line when the library is run.
+from nghq to the command line when the library is run.
 Debugging output is disabled by default.
 
 To install the software, use `make install`. To change where **nghq** will be
@@ -93,5 +87,5 @@ additional contributions by [David Waring](https://github.com/davidjwbbc).
 
 ## Copyright
 
-Copyright (c) 2018 British Broadcasting Corporation
+Copyright (c) 2020 British Broadcasting Corporation
 

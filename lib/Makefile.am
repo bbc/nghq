@@ -35,8 +35,6 @@ OBJECTS = \
 	header_compression.c \
 	map.c \
 	util.c \
-	tcp2_callbacks.c \
-	multicast.c \
 	io_buf.c \
 	version.c \
 	quic_transport.c \
@@ -51,14 +49,12 @@ HDRS = \
 	lang.h \
 	map.h \
 	nghq_internal.h \
-	tcp2_callbacks.h \
-	multicast.h \
 	io_buf.h \
 	quic_transport.h \
 	util.h
 
-libnghq_la_CFLAGS = -I$(top_srcdir)/include $(NGTCP2_CFLAGS) -I$(top_srcdir)/ls-qpack
-libnghq_la_LIBADD = $(NGTCP2_LIBS) -L$(top_builddir)/ls-qpack-build -lls-qpack
+libnghq_la_CFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/ls-qpack
+libnghq_la_LIBADD = -L$(abs_top_builddir)/ls-qpack-build/ -lls-qpack
 libnghq_la_SOURCES = $(HDRS) $(OBJECTS)
 nodist_libnghq_la_SOURCES = git-version.h
 libnghq_la_LDFLAGS = -no-undefined \

@@ -6,8 +6,6 @@ Source0: %{name}-%{version}.tar.gz
 URL: https://github.com/bbc/nghq.git
 
 BuildRequires: autoconf automake libtool make gcc gcc-c++
-BuildRequires: libngtcp2-devel%{?_isa} >= 0.1.0
-BuildRequires: libnghttp2-devel%{?_isa}
 BuildRequires: libev-devel%{?_isa}
 BuildRequires: openssl-devel%{?_isa}
 
