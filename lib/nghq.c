@@ -1867,5 +1867,96 @@ void nghq_free_session_id_string (uint8_t *buf)
   free (buf);
 }
 
+const char * nghq_strerror (int err) {
+  switch (err) {
+    case NGHQ_OK:
+      return "OK";
+    case NGHQ_ERROR:
+      return "An error occured";
+    case NGHQ_INTERNAL_ERROR:
+      return "An internal error occured";
+    case NGHQ_OUT_OF_MEMORY:
+      return "Could not allocate memory";
+    case NGHQ_NOT_IMPLEMENTED:
+      return "Requested functionality not implemented in this version of nghq";
+    case NGHQ_INCOMPATIBLE_METHOD:
+      return "Incompatible connection method";
+    case NGHQ_TOO_MUCH_DATA:
+      return "Too much data in flight";
+    case NGHQ_CANCELLED:
+      return "Stream or session cancelled";
+    case NGHQ_SESSION_CLOSED:
+      return "Session closed";
+    case NGHQ_EOF:
+      return "An underlying file or data source was closed";
+    case NGHQ_HDR_COMPRESS_FAILURE:
+      return "Header (de)compression routine failed";
+    case NGHQ_CRYPTO_ERROR:
+      return "A crypto function failed";
+    case NGHQ_NO_MORE_DATA:
+      return "No more data was available";
+    case NGHQ_SESSION_BLOCKED:
+      return "The session is blocked by flow control";
+    case NGHQ_REQUEST_BLOCKED:
+      return "The request is blocked by flow control";
+    case NGHQ_TOO_MANY_REQUESTS:
+      return "An endpoint has made too many requests";
+    case NGHQ_NOT_INTERESTED:
+      return "Application is not interested";
+    case NGHQ_CLIENT_ONLY:
+      return "Client only";
+    case NGHQ_SERVER_ONLY:
+      return "Server only";
+    case NGHQ_BAD_USER_DATA:
+      return "Couldn't find matching user data";
+    case NGHQ_INVALID_PUSH_LIMIT:
+      return "Invalid push limit";
+    case NGHQ_PUSH_LIMIT_REACHED:
+      return "Reached the limit of available push promises";
+    case NGHQ_PUSH_ALREADY_IN_CACHE:
+      return "Push already in cache";
+    case NGHQ_TRAILERS_NOT_PROMISED:
+      return "Received trailing header that was not promised";
+    case NGHQ_REQUEST_CLOSED:
+      return "Request closed";
+    case NGHQ_SETTINGS_NOT_RECOGNISED:
+      return "Settings not recognised";
+    case NGHQ_HTTP_CONNECT_ERROR:
+      return "HTTP CONNECT method error";
+    case NGHQ_HTTP_WRONG_STREAM:
+      return "HTTP Wrong Stream";
+    case NGHQ_HTTP_DUPLICATE_PUSH:
+      return "HTTP Duplicate push";
+    case NGHQ_HTTP_MALFORMED_FRAME:
+      return "Malformed HTTP/3 frame";
+    case NGHQ_HTTP_PUSH_REFUSED:
+      return "HTTP Push refused";
+    case NGHQ_HTTP_ALPN_FAILED:
+      return "Unrecognised ALPN string";
+    case NGHQ_HTTP_BAD_PUSH:
+      return "Invalid Push ID";
+    case NGHQ_TRANSPORT_ERROR:
+      return "QUIC Transport error";
+    case NGHQ_TRANSPORT_CLOSED:
+      return "QUIC Session closed";
+    case NGHQ_TRANSPORT_FINAL_OFFSET:
+      return "QUIC Transport final offset";
+    case NGHQ_TRANSPORT_FRAME_FORMAT:
+      return "QUIC Transport frame could not be parsed";
+    case NGHQ_TRANSPORT_PARAMETER:
+      return "Invalid QUIC transport parameter";
+    case NGHQ_TRANSPORT_VERSION:
+      return "Incompatible QUIC transport version";
+    case NGHQ_TRANSPORT_PROTOCOL:
+      return "QUIC transport protocol error";
+    case NGHQ_TRANSPORT_TIMEOUT:
+      return "QUIC session has timed out";
+    case NGHQ_TRANSPORT_BAD_SESSION_ID:
+      return "Session ID did not match";
+    case NGHQ_TRANSPORT_BAD_STREAM_ID:
+      return "Bad stream ID";
+  }
+  return "(unknown)";
+}
 
 // vim:ts=8:sts=2:sw=2:expandtab:

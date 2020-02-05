@@ -390,6 +390,11 @@ extern uint8_t nghq_convert_session_id_string (const char *str, size_t len,
                                                uint8_t **buf);
 
 /**
+ * @brief Return a NULL-terminated string representation of an error code
+ */
+extern const char * nghq_strerror (int err);
+
+/**
  * @brief Release allocated memory for a session ID string
  *
  * A convenience function that ensures the correct free method is used to
