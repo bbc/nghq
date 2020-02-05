@@ -395,6 +395,8 @@ int _transport_recv_stream_data (nghq_session *session, int64_t stream_id,
   if (rv == NGHQ_NOT_INTERESTED) {
     /* Client has indicated it doesn't care about this stream anymore, stop */
     nghq_stream_cancel (session, stream, 0);
+  } else if (fin) {
+    nghq_stream_close (session, stream, QUIC_ERR_HTTP_NO_ERROR);
   }
   return rv;
 }
