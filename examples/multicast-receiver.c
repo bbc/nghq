@@ -67,6 +67,7 @@ typedef enum ReceivingHeaders {
 typedef struct push_request {
   ReceivingHeaders headers_incoming;
   bool text_body;
+  bool final_request;
 } push_request;
 
 typedef struct push_request_list {
@@ -234,6 +235,8 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
     push_request *req = (push_request*)request_user_data;
     static const char content_type_field[] = "content-type";
     static const char content_type_text[] = "text/";
+    static const char connection_field[] = "connection";
+    static const char connection_close_value[] = "close";
 
     printf("%c> %.*s: %.*s\n",
            ((req->headers_incoming==HEADERS_REQUEST)?'P':'H'),
@@ -246,6 +249,14 @@ static int on_headers_cb (nghq_session *session, uint8_t flags,
         strncasecmp((const char*)hdr->value, content_type_text,
                     sizeof(content_type_text)-1) == 0) {
         req->text_body = true;
+    }
+    if (req->headers_incoming!=HEADERS_REQUEST &&
+        hdr->name_len == sizeof(connection_field)-1 &&
+        hdr->value_len == sizeof(connection_close_value)-1 &&
+        strncasecmp((const char*)hdr->name, connection_field, hdr->name_len) == 0 &&
+        strncasecmp((const char*)hdr->value, connection_close_value,
+                    hdr->value_len) == 0) {
+        req->final_request = true;
     }
 
     return NGHQ_OK;
@@ -284,6 +295,12 @@ static int on_request_close_cb  (nghq_session *session, nghq_error status,
           push_requests = it->next;
         } else {
           prev->next = it->next;
+        }
+
+        if (it->req->final_request) {
+          printf("Server signalled session close\n");
+          nghq_session_close (session, NGHQ_OK);
+          ev_break (EV_DEFAULT_UC_ EVBREAK_ALL);
         }
 
         free(it->req);

@@ -166,6 +166,13 @@ static nghq_header content_type_header = {
     (uint8_t*)content_type_hdr, sizeof(content_type_hdr)-1, NULL, 0
 };
 
+static char connection_hdr[] = "connection";
+static char connection_close_value[] = "close";
+static const nghq_header connection_close_header = {
+    (uint8_t*)connection_hdr, sizeof(connection_hdr)-1,
+    (uint8_t*)connection_close_value, sizeof(connection_close_value)-1
+};
+
 #if HAVE_OPENSSL
 static char digest_hdr[] = "digest";
 static nghq_header digest_header = {
@@ -182,6 +189,7 @@ static const nghq_header *g_response_hdrs[] = {
 #if HAVE_OPENSSL
     , &digest_header, &resp_signature_header
 #endif
+    , &connection_close_header
 };
 
 static server_session g_server_session;
@@ -293,7 +301,7 @@ static const char *mime_type(const char *filename)
 }
 
 static void _send_file(const char *filename, size_t filename_skip_chars,
-                       const char *path_prefix)
+                       const char *path_prefix, int final)
 {
     static intptr_t promise_request_user_data = 0;
     static char date_str[DATE_MAX_LEN];
@@ -303,6 +311,7 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
     int fd;
     int i;
     int result;
+    int num_resp_hdrs = sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]);
     struct timespec now;
 
     /* open file to send */
@@ -386,13 +395,15 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
     ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
     ev_run(EV_DEFAULT_UC_ 0);
 
-    printf("Starting server push with headers:\n");
-    for (i = 0; i < sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]); i++) {
+    if (!final) {
+      --num_resp_hdrs;
+    }
+    printf("Starting server push with %d headers:\n", num_resp_hdrs);
+    for (i = 0; i < num_resp_hdrs; i++) {
       printf("\t%s: %s\n", g_response_hdrs[i]->name, g_response_hdrs[i]->value);
     }
     result = nghq_feed_headers (g_server_session.session, g_response_hdrs,
-                     sizeof(g_response_hdrs)/sizeof(g_response_hdrs[0]), 0,
-                     (void*)promise_request_user_data);
+                     num_resp_hdrs, 0, (void*)promise_request_user_data);
 
     free(path_str);
 #if HAVE_OPENSSL
@@ -482,7 +493,7 @@ static void _free_path_list(path_list **list_root)
 static void _send_file_or_dir(const char *file_or_dir,
                               size_t filename_skip_chars,
                               const char *path_prefix,
-                              int recursive)
+                              int recursive, int final)
 {
     struct stat stats;
     if (lstat(file_or_dir, &stats) != 0) return;
@@ -508,13 +519,13 @@ static void _send_file_or_dir(const char *file_or_dir,
             if ((S_ISDIR(stats.st_mode) && recursive) ||
                 !S_ISDIR(stats.st_mode))
                 _send_file_or_dir(file_path, filename_skip_chars, path_prefix,
-                                  recursive);
+                                  recursive, !(path_it->next));
             free(file_path);
         }
         _free_path_list(&list);
         closedir(dir);
     } else if (S_ISREG(stats.st_mode)) {
-        _send_file(file_or_dir, filename_skip_chars, path_prefix);
+        _send_file(file_or_dir, filename_skip_chars, path_prefix, final);
     }
 }
 
@@ -553,7 +564,7 @@ static void do_file_send(const char *authority, const char *path_prefix,
     host_header.value = (uint8_t*)authority;
     host_header.value_len = strlen(authority);
 
-    _send_file_or_dir(send_dir, dir_prefix_len, path_prefix, recursive);
+    _send_file_or_dir(send_dir, dir_prefix_len, path_prefix, recursive, 1);
 }
 
 static ssize_t recv_cb (nghq_session *session, uint8_t *data, size_t len,
