@@ -162,6 +162,7 @@ typedef enum {
   NGHQ_STREAM_SERVER_UNI = 3,
 } nghq_stream_type;
 
+typedef struct timeval nghq_ts;
 
 struct nghq_session {
   uint8_t*        session_id;
@@ -187,6 +188,8 @@ struct nghq_session {
 
   nghq_mode       mode;
   int             handshake_complete;
+
+  nghq_ts         last_recv_ts;
 
   uint64_t        tx_pkt_num;
   uint64_t        rx_pkt_num;
@@ -238,6 +241,8 @@ nghq_stream *nghq_stream_new (uint64_t stream_id);
 nghq_stream *nghq_req_stream_new(nghq_session* session);
 
 nghq_stream *nghq_open_stream (nghq_session* session, nghq_stream_type type);
+
+void nghq_update_timeout (nghq_session *session);
 
 #define NGHQ_FRAME_OVERHEADS (1 + 4)
 

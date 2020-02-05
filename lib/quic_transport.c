@@ -43,6 +43,7 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
     ERROR("Mismatched session ID!");
     return NGHQ_TRANSPORT_BAD_SESSION_ID;
   }
+  nghq_update_timeout (ctx);
   off += ctx->session_id_len;
 
   /* Get the packet number, after removing potential packet protection */

@@ -1959,4 +1959,48 @@ const char * nghq_strerror (int err) {
   return "(unknown)";
 }
 
+static int _check_timeout (nghq_session *session, nghq_ts *ts) {
+  nghq_ts *to_comp = ts, deadline, offset;
+  int rv = NGHQ_OK;
+  if (!to_comp) {
+    to_comp = (nghq_ts *) malloc (sizeof(nghq_ts));
+    if (!to_comp) return NGHQ_OUT_OF_MEMORY;
+    if (gettimeofday(to_comp, NULL)) {
+      ERROR ("gettimeofday() failed: %s\n", strerror(errno));
+      return NGHQ_INTERNAL_ERROR;
+    }
+  }
+
+  offset.tv_sec = (time_t) session->transport_settings.idle_timeout;
+  timeradd (&session->last_recv_ts, &offset, &deadline);
+
+  if (timercmp(to_comp, &deadline, >=)) {
+    DEBUG ("Idle timeout of %lu seconds has expired!\n",
+           session->transport_settings.idle_timeout);
+    rv = NGHQ_TRANSPORT_TIMEOUT;
+  }
+
+  if (!ts) {
+    free (to_comp);
+  }
+
+  return rv;
+}
+
+int nghq_check_timeout (nghq_session *session) {
+  int rv = NGHQ_OK;
+  if (session->mode == NGHQ_MODE_MULTICAST) {
+    if (session->role == NGHQ_ROLE_SERVER) {
+      rv = _check_timeout (session, NULL);
+    }
+  } else {
+    rv = NGHQ_NOT_IMPLEMENTED;
+  }
+  return rv;
+}
+
+void nghq_update_timeout (nghq_session *session) {
+  gettimeofday(&session->last_recv_ts, NULL);
+}
+
 // vim:ts=8:sts=2:sw=2:expandtab:

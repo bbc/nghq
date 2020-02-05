@@ -405,6 +405,15 @@ extern const char * nghq_strerror (int err);
  */
 extern void nghq_free_session_id_string (uint8_t *buf);
 
+/**
+ * @brief Check the timeout status of a given NGHQ session
+ *
+ * @return NGHQ_OK if the session is still valid
+ * @return NGHQ_TRANSPORT_TIMEOUT if the session has timed out
+ * @return NGHQ_OUT_OF_MEMORY or NGHQ_INTERNAL_ERROR on a failure.
+ */
+extern int nghq_check_timeout (nghq_session *session);
+
 /*
  * Session Callbacks
  */
