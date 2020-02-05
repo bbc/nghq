@@ -69,6 +69,13 @@ typedef struct push_request {
   bool text_body;
 } push_request;
 
+typedef struct push_request_list {
+  push_request *req;
+  struct push_request_list *next;
+} push_request_list;
+
+static push_request_list *push_requests;
+
 typedef struct session_data {
   nghq_session *session;
   ev_io socket_readable;
@@ -204,6 +211,20 @@ static int on_begin_promise_cb (nghq_session *session, void* session_user_data,
     //session_data *data = (session_data*) session_user_data;
     push_request *new_request = calloc(1, sizeof(push_request));
     nghq_set_request_user_data(session, promise_user_data, new_request);
+    push_request_list *it = push_requests;
+    push_request_list *new_entry = calloc (1, sizeof (push_request_list));
+    new_entry->req = new_request;
+    if (it == NULL) {
+      push_requests = new_entry;
+    } else {
+      while (it != NULL) {
+        if (it->next == NULL) {
+          it->next = new_entry;
+          break;
+        }
+        it = it->next;
+      }
+    }
     return NGHQ_OK;
 }
 
@@ -255,8 +276,23 @@ static int on_push_cancel_cb (nghq_session *session, void *request_user_data)
 static int on_request_close_cb  (nghq_session *session, nghq_error status,
                                  void *request_user_data)
 {
+    push_request *req = (push_request *) request_user_data;
+    push_request_list *prev = NULL, *it = push_requests;
+    while (it != NULL) {
+      if (it->req == req) {
+        if (prev == NULL) {
+          push_requests = it->next;
+        } else {
+          prev->next = it->next;
+        }
+
+        free(it->req);
+        free(it);
+      }
+      prev = it;
+      it = it->next;
+    }
     printf("Request finished\n");
-    free(request_user_data);
     return NGHQ_OK;
 }
 
