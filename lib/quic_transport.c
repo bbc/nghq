@@ -80,6 +80,8 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
   pkt_num = get_packet_number (buf[0], buf + off);
   off += pkt_num_len;
 
+  DEBUG ("Received packet with packet number %lu\n", pkt_num);
+
   /* Remove packet encryption */
   rv = (ssize_t) ctx->callbacks.decrypt_callback (ctx, buf + off, len - off,
                                                   NULL, NULL, 0, NULL, 0,
@@ -167,7 +169,6 @@ ssize_t quic_transport_write_stream (nghq_session *ctx, nghq_stream *stream,
   uint64_t stream_frame_type = 0x0aULL; /* Always going to have a length */
   size_t off = 0;
   size_t payload_len = len_in;
-  int rv;
 
   *buf_written = 0;
 
@@ -399,7 +400,6 @@ int _transport_recv_stream_data (nghq_session *session, int64_t stream_id,
 }
 
 ssize_t _parse_reset_stream_frame (nghq_session *ctx, uint8_t *buf, size_t len){
-  ssize_t rv;
   size_t off = 0;
   uint64_t stream_id, app_error_code, final_size;
   nghq_stream *stream;
@@ -407,6 +407,9 @@ ssize_t _parse_reset_stream_frame (nghq_session *ctx, uint8_t *buf, size_t len){
   stream_id = _get_varlen_int (buf, &off, len);
   app_error_code = _get_varlen_int (buf, &off, len);
   final_size = _get_varlen_int (buf, &off, len);
+
+  DEBUG ("Received RESET_STREAM for stream ID %lu, error code %lu and final "
+         "size of %lu\n", stream_id, app_error_code, final_size);
 
   stream = nghq_stream_id_map_find (ctx->transfers, stream_id);
   if (stream == NULL) {
