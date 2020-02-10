@@ -228,12 +228,6 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
     return NGHQ_SESSION_CLOSED;
   }
 
-  /* Close any running streams - iterate from first stream after 4 */
-  it = nghq_stream_id_map_find(session->transfers, 4);
-  for (it = nghq_stream_id_map_iterator(session->transfers, it); it;
-       it = nghq_stream_id_map_iterator(session->transfers, it)) {
-    nghq_stream_close(session, it, QUIC_ERR_HTTP_REQUEST_CANCELLED);
-  }
   if (session->mode == NGHQ_MODE_MULTICAST) {
     if (session->role == NGHQ_ROLE_SERVER) {
       nghq_stream* init_req_stream = nghq_stream_id_map_find (
@@ -262,14 +256,17 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
                                  (void *) init_req_stream);
         nghq_feed_headers (session, resp, sizeof(resp)/sizeof(resp[0]), 1,
                            (void *) init_req_stream);
-      } else {
-        /* multicast client also needs to close stream 0 */
-        nghq_stream_close(session, init_req_stream, QUIC_ERR_HTTP_REQUEST_CANCELLED);
       }
     }
   } else {
     /* TODO, should we ever make a unicast version. */
     return NGHQ_NOT_IMPLEMENTED;
+  }
+
+  /* Close all running streams */
+  for (it = nghq_stream_id_map_iterator(session->transfers, it); it;
+       it = nghq_stream_id_map_iterator(session->transfers, it)) {
+    nghq_stream_close(session, it, QUIC_ERR_HTTP_REQUEST_CANCELLED);
   }
 
   return NGHQ_OK;
