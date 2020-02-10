@@ -788,7 +788,9 @@ int nghq_end_request (nghq_session *session, nghq_error result,
                       void *request_user_data) {
   nghq_stream* stream = nghq_stream_id_map_stream_search (session->transfers,
                                                           request_user_data);
-  if (stream == NULL) {
+  if ((stream == NULL) &&
+      ((session->mode == NGHQ_MODE_UNICAST) ||
+          (session->role == NGHQ_ROLE_SERVER))) {
     uint8_t* buf;
     size_t buflen;
     int rv;
@@ -809,7 +811,7 @@ int nghq_end_request (nghq_session *session, nghq_error result,
       return nghq_queue_send_frame(session, NGHQ_CONTROL_SERVER, buf, buflen);
     }
   }
-  return nghq_stream_cancel(session, stream, 0);
+  return nghq_stream_cancel(session, stream, result);
 }
 
 uint64_t nghq_get_max_client_requests (nghq_session *session) {
@@ -1616,24 +1618,41 @@ int nghq_write_send_buffer (nghq_session* session) {
 /*
  * Call this method if you want to stop a stream that is currently running.
  */
-int nghq_stream_cancel (nghq_session* session, nghq_stream *stream, int error) {
+int nghq_stream_cancel (nghq_session* session, nghq_stream *stream,
+                        nghq_error error) {
   uint16_t app_error_code = QUIC_ERR_HTTP_NO_ERROR;
-  if (error) {
-    app_error_code = QUIC_ERR_HTTP_INTERNAL_ERROR;
-    if (session->role == NGHQ_ROLE_SERVER) {
-      nghq_io_buf *buf = nghq_io_buf_alloc (NULL, session->packet_buf_len, 1, 0);
-      ssize_t off = quic_transport_write_quic_header (session, buf->buf,
-                                                      buf->buf_len);
-      off += quic_transport_write_reset_stream (session, buf->buf + off,
-                                                buf->buf_len - off, stream,
-                                                app_error_code);
-      buf->buf_len = quic_transport_encrypt (session, buf->buf, off, buf->buf,
-                                             buf->buf_len);
-      nghq_io_buf_push (&session->send_buf, buf);
-    }
+  switch (error) {
+    case NGHQ_ERROR:
+    case NGHQ_INTERNAL_ERROR:
+      app_error_code = QUIC_ERR_HTTP_INTERNAL_ERROR;
+      break;
+    case NGHQ_NOT_INTERESTED:
+    case NGHQ_CANCELLED:
+    case NGHQ_REQUEST_CLOSED:
+      app_error_code = QUIC_ERR_HTTP_REQUEST_CANCELLED;
+      break;
+    default:
+      break;
+  }
+  if (session->role == NGHQ_ROLE_SERVER) {
+    nghq_io_buf *buf = nghq_io_buf_alloc (NULL, session->packet_buf_len, 1, 0);
+    ssize_t off = quic_transport_write_quic_header (session, buf->buf,
+                                                    buf->buf_len);
+    off += quic_transport_write_reset_stream (session, buf->buf + off,
+                                              buf->buf_len - off, stream,
+                                              app_error_code);
+    buf->buf_len = quic_transport_encrypt (session, buf->buf, off, buf->buf,
+                                           buf->buf_len);
+    nghq_io_buf_push (&session->send_buf, buf);
   }
 
   nghq_stream_id_map_remove (session->transfers, stream->stream_id);
+
+  if (session->callbacks.on_request_close_callback) {
+    session->callbacks.on_request_close_callback (session, error,
+                                                  stream->user_data);
+  }
+
   return nghq_stream_ended (session, stream);
 }
 
