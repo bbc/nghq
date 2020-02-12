@@ -56,9 +56,9 @@ from nghq to the command line when the library is run.
 Debugging output is disabled by default.
 
 To install the software, use `make install`. To change where **nghq** will be
-installed, use the `PREFIX` variable as below:
+installed, use the `prefix` configuration parameter as below:
 
-    $ ./configure PREFIX=/home/roadrunner/nghq-target
+    $ ./configure --prefix=/home/roadrunner/nghq-target
     $ make install
 
 ### Running the examples
