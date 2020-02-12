@@ -23,7 +23,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 
-AC_INIT([libnghq], [0.1.99], [samuelh@rd.bbc.co.uk])
+AC_INIT([libnghq], [0.5.0], [samuelh@rd.bbc.co.uk])
 AM_INIT_AUTOMAKE
 AC_OUTPUT
 AC_CONFIG_HEADERS([config.h])
@@ -39,7 +39,7 @@ LT_INIT()
 #    LT_AGE.
 # 4. If any interfaces have been removed or changed since the last release,
 #    then set LT_AGE to 0.
-LT_CURRENT=0
+LT_CURRENT=1
 LT_REVISION=0
 LT_AGE=0
 AC_SUBST([LT_CURRENT])
