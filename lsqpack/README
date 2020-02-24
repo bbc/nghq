@@ -1,0 +1,2 @@
+This directory contains automake files to distribute, compile and install the
+cmake submodule in $(top_srcdir)/ls-qpack.

@@ -27,7 +27,7 @@ noinst_PROGRAMS =
 if HAVE_LIBEV
 noinst_PROGRAMS += multicast-receiver multicast-sender
 endif
-AM_LDFLAGS = $(top_builddir)/lib/libnghq.la -L$(top_builddir)/ls-qpack-build -lls-qpack
+AM_LDFLAGS = $(top_builddir)/lib/libnghq.la -L$(top_builddir)/lsqpack/ls-qpack-build -lls-qpack
 AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir)/include
 multicast_receiver_LDADD = \
 	$(LIBEV_LIBS)

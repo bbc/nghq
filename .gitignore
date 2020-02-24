@@ -34,7 +34,7 @@ libtool
 #
 # Submodule build directory
 #
-ls-qpack-build/
+lsqpack/ls-qpack-build/
 
 #
 # Logs

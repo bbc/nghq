@@ -59,6 +59,9 @@ AS_IF([test "x$ac_cv_prog_cc_c99" = "no"], [
   AC_MSG_ERROR([[Compilation requires a C compiler that can do iat least ISO C99.]])
 ])
 
+AC_CHECK_PROGS([CMAKE], [cmake3 cmake], [false])
+AC_SUBST([CMAKE])
+
 #AC_CONFIG_HEADERS([config.h])
 
 AX_PACKED_STRUCT
@@ -123,6 +126,7 @@ AC_CONFIG_FILES([
   tests/Makefile
   examples/Makefile
   redhat/libnghq.spec
+  lsqpack/Makefile
 ])
 
 AC_OUTPUT

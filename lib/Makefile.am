@@ -54,7 +54,7 @@ HDRS = \
 	util.h
 
 libnghq_la_CFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/ls-qpack -I$(top_builddir)/include
-libnghq_la_LIBADD = -L$(abs_top_builddir)/ls-qpack-build/ -lls-qpack
+libnghq_la_LIBADD = -L$(abs_top_builddir)/lsqpack/ls-qpack-build/ -lls-qpack
 libnghq_la_SOURCES = $(HDRS) $(OBJECTS)
 nodist_libnghq_la_SOURCES = git-version.h
 libnghq_la_LDFLAGS = -no-undefined \
