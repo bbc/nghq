@@ -42,11 +42,13 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
  * @param ctx The NGHQ Session context
  * @param buf The buffer to write the packet header into
  * @param len The length of the packet header
+ * @param pktnum A reference to the new packet number, required should you ever
+ *            call quic_transport_abandon_packet.
  * @return The length of the QUIC packet header written into @p buf
  * @return NGHQ_ERROR If the packet header couldn't be written.
  */
 ssize_t quic_transport_write_quic_header (nghq_session *ctx, uint8_t *buf,
-                                          size_t len);
+                                          size_t len, uint64_t *pktnum);
 
 /**
  * @brief Roll back allocating a packet number for a new QUIC packet
@@ -60,9 +62,10 @@ ssize_t quic_transport_write_quic_header (nghq_session *ctx, uint8_t *buf,
  * @param ctx The NGHQ Session context.
  * @param buf The buffer containing a packet header
  * @param len The length of the packet header
+ * @param pktnum The full version of the packet number in the header.
  */
 void quic_transport_abandon_packet (nghq_session *ctx, uint8_t *buf,
-                                    size_t len);
+                                    size_t len, uint64_t pktnum);
 
 /**
  * @brief Create a stream frame in a QUIC packet to be sent

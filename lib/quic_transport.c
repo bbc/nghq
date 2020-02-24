@@ -127,7 +127,7 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
 }
 
 ssize_t quic_transport_write_quic_header (nghq_session *ctx, uint8_t *buf,
-                                          size_t len) {
+                                          size_t len, uint64_t *pktnum) {
   ssize_t off = 0;
   uint64_t packet_number;
   buf[0] = 0x40; /* Short header, 1 byte packet number */
@@ -151,13 +151,19 @@ ssize_t quic_transport_write_quic_header (nghq_session *ctx, uint8_t *buf,
     default:
       buf[off++] = (uint8_t) packet_number;
   }
+  *pktnum = packet_number;
   return off;
 }
 
 void quic_transport_abandon_packet (nghq_session *ctx, uint8_t *buf,
-                                    size_t len) {
-  uint64_t pkt_num = get_packet_number (buf[0], buf + ctx->session_id_len + 1);
-  if (pkt_num == (ctx->tx_pkt_num - 1)) {
+                                    size_t len, uint64_t pktnum) {
+  uint64_t hdr_pkt_num = get_packet_number (buf[0], buf + ctx->session_id_len + 1);
+  // TODO: Check all the packet number available
+  if ((pktnum & 0x00000000000000FF) != (hdr_pkt_num & 0x00000000000000FF)) {
+    ERROR ("Packet number supplied does not match that in the header!\n");
+    return;
+  }
+  if (pktnum == (ctx->tx_pkt_num - 1)) {
     --ctx->tx_pkt_num;
   }
 }

@@ -374,6 +374,7 @@ int nghq_session_send (nghq_session *session) {
   while ((rv != NGHQ_ERROR) && (rv != NGHQ_EOF)) {
     size_t packet_len;
     ssize_t res;
+    uint64_t pktnum;
 
     nghq_io_buf *new_pkt = nghq_io_buf_alloc (NULL, session->packet_buf_len, 0,
                                               0);
@@ -382,7 +383,7 @@ int nghq_session_send (nghq_session *session) {
     }
 
     res = quic_transport_write_quic_header (session, new_pkt->buf,
-                                            new_pkt->buf_len);
+                                            new_pkt->buf_len, &pktnum);
     if (res < NGHQ_OK) return res;
     packet_len = res;
 
@@ -431,7 +432,8 @@ int nghq_session_send (nghq_session *session) {
 
     if (packet_len == res) {
       DEBUG ("No packet to be sent");
-      quic_transport_abandon_packet (session, new_pkt->buf, new_pkt->buf_len);
+      quic_transport_abandon_packet (session, new_pkt->buf, new_pkt->buf_len,
+                                     pktnum);
       free (new_pkt->buf);
       free (new_pkt);
       break;
@@ -1635,9 +1637,10 @@ int nghq_stream_cancel (nghq_session* session, nghq_stream *stream,
       break;
   }
   if (session->role == NGHQ_ROLE_SERVER) {
+    uint64_t pktnum;
     nghq_io_buf *buf = nghq_io_buf_alloc (NULL, session->packet_buf_len, 1, 0);
     ssize_t off = quic_transport_write_quic_header (session, buf->buf,
-                                                    buf->buf_len);
+                                                    buf->buf_len, &pktnum);
     off += quic_transport_write_reset_stream (session, buf->buf + off,
                                               buf->buf_len - off, stream,
                                               app_error_code);
