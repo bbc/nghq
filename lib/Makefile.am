@@ -54,11 +54,12 @@ HDRS = \
 	util.h
 
 libnghq_la_CFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/ls-qpack -I$(top_builddir)/include
-libnghq_la_LIBADD = -L$(abs_top_builddir)/lsqpack/ls-qpack-build/ -lls-qpack
+libnghq_la_LIBADD = -lls-qpack
 libnghq_la_SOURCES = $(HDRS) $(OBJECTS)
 nodist_libnghq_la_SOURCES = git-version.h
 libnghq_la_LDFLAGS = -no-undefined \
-    -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
+    -version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE) \
+    -Wl,-L$(top_builddir)/lsqpack/ls-qpack-build
 
 BUILT_SOURCES = git-version.h
 .PHONY: FORCE
