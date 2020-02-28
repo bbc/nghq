@@ -160,10 +160,12 @@ void nghq_free_hdr_compression_ctx(nghq_hdr_compression_ctx *ctx) {
   if (ctx != NULL) {
     if (ctx->encoder != NULL) {
       lsqpack_enc_cleanup (ctx->encoder);
+      free (ctx->encoder);
       ctx->encoder = NULL;
     }
     if (ctx->decoder != NULL) {
       lsqpack_dec_cleanup (ctx->decoder);
+      free (ctx->decoder);
       ctx->decoder = NULL;
     }
   }
