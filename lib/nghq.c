@@ -392,6 +392,13 @@ int nghq_session_send (nghq_session *session) {
       size_t len_remain = new_pkt->buf_len - packet_len;
       while ((it != NULL) && (it->send_buf == NULL)) {
         it = nghq_stream_id_map_iterator (session->transfers, it);
+        while ((it != NULL) && (it->send_state == STATE_DONE) &&
+               (it->recv_state == STATE_DONE) && (it->send_buf == NULL) &&
+               (it->recv_buf == NULL)) {
+          uint64_t stream_id = it->stream_id;
+          nghq_stream_ended(session, it);
+          it = nghq_stream_id_map_remove (session->transfers, stream_id);
+        }
       }
 
       if (it == NULL) {
@@ -1776,6 +1783,19 @@ nghq_stream *nghq_open_stream (nghq_session* session, nghq_stream_type type) {
   if (stream == NULL) return NULL;
 
   stream->stream_id = quic_transport_open_stream(session, type);
+  if (type == NGHQ_STREAM_CLIENT_UNI) {
+    if (session->role == NGHQ_ROLE_SERVER) {
+      stream->send_state = STATE_DONE;
+    } else {
+      stream->recv_state = STATE_DONE;
+    }
+  } else if (type == NGHQ_STREAM_SERVER_UNI) {
+    if (session->role == NGHQ_ROLE_SERVER) {
+      stream->recv_state = STATE_DONE;
+    } else {
+      stream->send_state = STATE_DONE;
+    }
+  }
   if (stream->stream_id < NGHQ_OK) {
     ERROR("Failed to open new request stream\n");
     free (stream);
@@ -2008,6 +2028,7 @@ static int _check_timeout (nghq_session *session, nghq_ts *ts) {
   }
 
   offset.tv_sec = (time_t) session->transport_settings.idle_timeout;
+  offset.tv_usec = 0;
   timeradd (&session->last_recv_ts, &offset, &deadline);
 
   if (timercmp(to_comp, &deadline, >=)) {
