@@ -290,6 +290,10 @@ int nghq_session_free (nghq_session *session) {
   nghq_free_hdr_compression_ctx (session->hdr_ctx);
   nghq_io_buf_clear (&session->send_buf);
   nghq_io_buf_clear (&session->recv_buf);
+  if (session->session_id) {
+    free (session->session_id);
+    session->session_id = NULL;
+  }
   free (session);
   return NGHQ_OK;
 }
