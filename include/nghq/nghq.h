@@ -709,7 +709,7 @@ typedef void (*nghq_timer_event) (nghq_session *session, void *timer_id,
  * callback.
  *
  * @param session A running NGHQ session.
- * @param seconds The nummber of seconds to wait before calling the function.
+ * @param seconds The number of seconds to wait before calling the function.
  * @param cb The nghq_timer_event type function to call back after the time
  *           has elapsed.
  * @param nghq_data An opaque data pointer to return when calling the function.

@@ -453,7 +453,7 @@ int nghq_session_send (nghq_session *session) {
     }
 
     if (packet_len == res) {
-      DEBUG ("No packet to be sent");
+      DEBUG ("No packet to be sent\n");
       quic_transport_abandon_packet (session, new_pkt->buf, new_pkt->buf_len,
                                      pktnum);
       free (new_pkt->buf);
