@@ -293,11 +293,25 @@ static int on_request_close_cb  (nghq_session *session, nghq_error status,
       if (it->req == req) {
         if (prev == NULL) {
           push_requests = it->next;
+        } else if (it->next == NULL && it == push_requests) {
+          push_requests = NULL;
         } else {
           prev->next = it->next;
         }
 
-        if (it->req->final_request) {
+        if ((push_requests != NULL) && (it->req->final_request)) {
+          /* Make all remaining requests "final" so they actually cause shutdown
+           * when they complete...
+           */
+          push_request_list *it = push_requests;
+          int i = 0;
+          while (it != NULL) {
+            it->req->final_request = 1;
+            it = it->next;
+            i++;
+          }
+          printf("There are %d outstanding requests\n", i);
+        } else if (it->req->final_request) {
           printf("Server signalled session close\n");
           nghq_session_close (session, NGHQ_OK);
           ev_break (EV_DEFAULT_UC_ EVBREAK_ALL);
@@ -327,6 +341,11 @@ static void timer_event (EV_P_ ev_timer *w, int revent)
   ev_timer_stop (EV_A_ w);
 
   timer->event_fn (timer->session, timer, timer->nghq_data);
+
+  if (nghq_check_timeout (timer->session) != NGHQ_OK) {
+    /* NGHQ Session has timed out, time to shut down. */
+    ev_break (EV_DEFAULT_UC_ EVBREAK_ALL);
+  }
 
   if (!ev_is_active(w)) free(timer);
 }
@@ -403,7 +422,10 @@ static nghq_transport_settings g_trans_settings = {
     NULL,                        /* destination_address */
     0,                           /* destination_address_len */
     NULL,                        /* source_address */
-    0                            /* source_address_len */
+    0,                           /* source_address_len */
+    NGHQ_PKTNUM_LEN_AUTO,        /* packet_number_length */
+    0,                           /* encryption_overhead */
+    5,                           /* stream_timeout */
 };
 
 static void socket_readable_cb (EV_P_ ev_io *w, int revents)

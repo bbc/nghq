@@ -55,6 +55,7 @@ typedef enum nghq_stream_state {
 
 #define STREAM_FLAG_STARTED UINT8_C(0x01)
 #define STREAM_FLAG_TRAILERS_PROMISED UINT8_C(0x02)
+#define STREAM_FLAG_FIN_SEEN UINT8_C(0x04)
 
 typedef struct nghq_gap {
   uint64_t begin;
@@ -97,10 +98,12 @@ typedef struct {
   uint8_t       flags;
   size_t        next_recv_offset;
   nghq_stream_frame* active_frames;
+  void *        timer_id;
 } nghq_stream;
 
 #define STREAM_STARTED(x) (x & STREAM_FLAG_STARTED)
 #define STREAM_TRAILERS_PROMISED(x) (x & STREAM_FLAG_TRAILERS_PROMISED)
+#define STREAM_FIN_SEEN(x) (x & STREAM_FLAG_FIN_SEEN)
 
 typedef struct tls13_varlen_vector {
   size_t size;
@@ -215,6 +218,9 @@ struct nghq_session {
 
   nghq_io_buf*  send_buf;
   nghq_io_buf*  recv_buf;
+
+  void *        session_timeout_timer;
+  int           session_timed_out;
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
@@ -244,6 +250,8 @@ nghq_stream *nghq_stream_new (uint64_t stream_id);
 nghq_stream *nghq_req_stream_new(nghq_session* session);
 
 nghq_stream *nghq_open_stream (nghq_session* session, nghq_stream_type type);
+
+void nghq_close_all_streams (nghq_session *session, nghq_map_ctx **strm_ctx);
 
 void nghq_update_timeout (nghq_session *session);
 
@@ -280,5 +288,6 @@ void nghq_update_timeout (nghq_session *session);
 #define QUIC_ERR_MALFORMED_PUSH_PROMISE_FRAME UINT16_C(0x0105)
 #define QUIC_ERR_MALFORMED_GOAWAY_FRAME UINT16_C(0x0107)
 #define QUIC_ERR_MALFORMED_MAX_PUSH_ID UINT16_C(0x010D)
+#define QUIC_ERR_PACKET_LOSS UINT16_C(0xFFFF)
 
 #endif /* LIB_NGHQ_INTERNAL_H_ */

@@ -78,6 +78,29 @@ nghq_stream * nghq_stream_init() {
   return stream;
 }
 
+static void _nghq_stream_timeout (nghq_session *session, void *timer_id,
+                                      void *nghq_data)
+{
+  nghq_stream *stream = (nghq_stream *) nghq_data;
+  if (nghq_stream_id_map_find (session->transfers, stream->stream_id) == NULL) {
+    ERROR("Received stream timeout for Stream ID %lu that is not in our running"
+          "transfers. Ignoring.\n", stream->stream_id);
+    return;
+  }
+  DEBUG("Received stream timeout, ending stream %lu with outstanding data\n",
+        stream->stream_id);
+  nghq_stream_close (session, stream, QUIC_ERR_PACKET_LOSS);
+}
+
+static void _nghq_session_timeout (nghq_session *session, void *timer_id,
+                                   void *nghq_data)
+{
+  DEBUG("Session timeout fired!\n");
+  nghq_close_all_streams (session, &session->transfers);
+  nghq_close_all_streams (session, &session->promises);
+  session->session_timed_out = 1;
+}
+
 static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
                                       const nghq_settings *settings,
                                       const nghq_transport_settings *transport,
@@ -133,6 +156,8 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
 
   session->remote_pktnum = 2;
   session->last_remote_pkt_num = 0;
+  session->session_timeout_timer = NULL;
+  session->session_timed_out = 0;
 
   memset (&session->t_params, 0, sizeof(session->t_params));
   session->t_params.idle_timeout = transport->idle_timeout;
@@ -272,21 +297,9 @@ int nghq_session_close (nghq_session *session, nghq_error reason) {
   return NGHQ_OK;
 }
 
-static void _clean_up_streams (nghq_session *session, nghq_map_ctx *strm_ctx) {
-  if (strm_ctx != NULL) {
-    nghq_stream *stream = nghq_stream_id_map_iterator(strm_ctx, NULL);
-    while (stream != NULL) {
-      uint64_t stream_id = stream->stream_id;
-      nghq_stream_ended(session, stream);
-      stream = nghq_stream_id_map_remove (strm_ctx, stream_id);
-    }
-    nghq_stream_id_map_destroy (strm_ctx);
-  }
-}
-
 int nghq_session_free (nghq_session *session) {
-  _clean_up_streams (session, session->transfers);
-  _clean_up_streams (session, session->promises);
+  nghq_close_all_streams (session, &session->transfers);
+  nghq_close_all_streams (session, &session->promises);
   nghq_free_hdr_compression_ctx (session->hdr_ctx);
   nghq_io_buf_clear (&session->send_buf);
   nghq_io_buf_clear (&session->recv_buf);
@@ -353,8 +366,6 @@ int nghq_session_recv (nghq_session *session) {
             nghq_strerror(rv));
       return rv;
     }
-
-    nghq_update_timeout (session);
 
     rv = NGHQ_OK;
   }
@@ -1417,6 +1428,34 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
     return NGHQ_REQUEST_CLOSED;
   }
 
+  double timeout = session->transport_settings.stream_timeout;
+  if (timeout > 0) {
+    if (stream->timer_id != NULL) {
+      /* If !NGHQ_OK (0), then couldn't reset the timer, so try making a new
+       * one below. */
+      if (session->callbacks.reset_timer_callback(session,
+                                                  session->session_user_data,
+                                                  stream->timer_id,
+                                                  timeout) != NGHQ_OK) {
+        stream->timer_id = NULL;
+      }
+    }
+    /* Don't set timers on stream 0, as it may not be updated at the same
+     * frequency as the object delivery channels. */
+    if ((stream->timer_id == NULL) &&
+        (stream->stream_id != NGHQ_PUSH_PROMISE_STREAM)) {
+      stream->timer_id = session->callbacks.set_timer_callback (session,
+                                                    timeout,
+                                                    session->session_user_data,
+                                                    _nghq_stream_timeout,
+                                                    (void *) stream);
+    }
+  }
+
+  if (end_of_stream) {
+    stream->flags |= STREAM_FLAG_FIN_SEEN;
+  }
+
   _nghq_insert_recv_stream_data(stream, data, datalen, off, end_of_stream);
 
   /* Add new frames */
@@ -1555,6 +1594,10 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
     }
   }
 
+  if ((stream->active_frames == NULL) && STREAM_FIN_SEEN(stream->flags)) {
+    nghq_stream_close (session, stream, QUIC_ERR_HTTP_NO_ERROR);
+  }
+
   return NGHQ_OK;
 }
 
@@ -1679,6 +1722,13 @@ int nghq_stream_ended (nghq_session* session, nghq_stream *stream) {
   nghq_io_buf_clear(&stream->send_buf);
   nghq_io_buf_clear(&stream->recv_buf);
 
+  if (stream->timer_id) {
+    session->callbacks.cancel_timer_callback (session,
+                                              session->session_user_data,
+                                              stream->timer_id);
+    stream->timer_id = NULL;
+  }
+
   stream->send_state = STATE_DONE;
   stream->recv_state = STATE_DONE;
   stream->flags ^= STREAM_FLAG_STARTED;
@@ -1748,6 +1798,9 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
     case QUIC_ERR_MALFORMED_MAX_PUSH_ID:
       status = NGHQ_HTTP_MALFORMED_FRAME;
       break;
+    case QUIC_ERR_PACKET_LOSS:
+      status = NGHQ_MISSING_DATA;
+      break;
     default:
       ERROR("Unknown HTTP/QUIC Error Code 0x%4X\n", app_error_code);
       status = NGHQ_INTERNAL_ERROR;
@@ -1815,6 +1868,19 @@ nghq_stream *nghq_open_stream (nghq_session* session, nghq_stream_type type) {
   }
 
   return stream;
+}
+
+void nghq_close_all_streams (nghq_session *session, nghq_map_ctx **strm_ctx) {
+  if (*strm_ctx != NULL) {
+    nghq_stream *stream = nghq_stream_id_map_iterator(*strm_ctx, NULL);
+    while (stream != NULL) {
+      uint64_t stream_id = stream->stream_id;
+      nghq_stream_ended(session, stream);
+      stream = nghq_stream_id_map_remove (*strm_ctx, stream_id);
+    }
+    nghq_stream_id_map_destroy (*strm_ctx);
+    *strm_ctx = NULL;
+  }
 }
 
 PACKED_STRUCT(alpn_name)
@@ -2049,19 +2115,31 @@ static int _check_timeout (nghq_session *session, nghq_ts *ts) {
 }
 
 int nghq_check_timeout (nghq_session *session) {
-  int rv = NGHQ_OK;
+  if (session->session_timed_out) return NGHQ_TRANSPORT_TIMEOUT;
   if (session->mode == NGHQ_MODE_MULTICAST) {
-    if (session->role == NGHQ_ROLE_SERVER) {
-      rv = _check_timeout (session, NULL);
-    }
-  } else {
-    rv = NGHQ_NOT_IMPLEMENTED;
+    return _check_timeout (session, NULL);
   }
-  return rv;
+  return NGHQ_NOT_IMPLEMENTED;
 }
 
 void nghq_update_timeout (nghq_session *session) {
   gettimeofday(&session->last_recv_ts, NULL);
+  if (session->callbacks.set_timer_callback != NULL) {
+    if (session->session_timeout_timer) {
+      if (session->callbacks.reset_timer_callback (session,
+                                      session->session_user_data,
+                                      session->session_timeout_timer,
+                                      session->transport_settings.idle_timeout))
+        session->session_timeout_timer = NULL;
+    }
+    if (session->session_timeout_timer == NULL) {
+      session->session_timeout_timer =
+          session->callbacks.set_timer_callback (session,
+                                       session->transport_settings.idle_timeout,
+                                       session->session_user_data,
+                                       _nghq_session_timeout, NULL);
+    }
+  }
 }
 
 // vim:ts=8:sts=2:sw=2:expandtab:

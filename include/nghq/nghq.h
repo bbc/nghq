@@ -53,6 +53,7 @@ typedef enum {
   NGHQ_INTERNAL_ERROR = -2,
   NGHQ_OUT_OF_MEMORY = -3,
   NGHQ_NOT_IMPLEMENTED = -4,
+  NGHQ_MISSING_DATA = -5,
   /* Connection errors */
   NGHQ_INCOMPATIBLE_METHOD = -10,
   NGHQ_TOO_MUCH_DATA = -11,
@@ -147,6 +148,8 @@ typedef struct {
   } packet_number_length;
 
   size_t encryption_overhead;
+
+  double stream_timeout;
 } nghq_transport_settings;
 
 #define NGHQ_SETTINGS_MAX_HEADER_LIST_SIZE 0x6LL
@@ -667,8 +670,10 @@ typedef int (*nghq_on_push_cancel_callback) (nghq_session *session,
  * application can expect no more data to be sent. The value in status indicates
  * the reason why the request was closed. If it's NGHQ_OK, then the transfer
  * completed successfully (receiving a HTTP-level error like a 404 would still
- * mean the transfer has completed successfully). All other errors are listed at
- * the bottom of this page.
+ * mean the transfer has completed successfully).
+ *
+ * A status of NGHQ_MISSING_DATA indicated that there was an unrecoverable gap
+ * in the object reception, and the object is not complete.
  *
  * @return NGHQ_OK
  */
@@ -684,6 +689,9 @@ typedef int (*nghq_on_request_close_callback) (nghq_session *session,
  * to the set_timer_callback to be called when the timer expires. This callback
  * function may call reset_timer_callback to use the timer event again. If the
  * timer event is not reset then it is safe to forget it.
+ *
+ * After calling this function, the application should check nghq_check_timeout
+ * in case the specific timer event was one which signalled a session timeout.
  *
  * @param session A running NGHQ session.
  * @param timer_id The timer ID for this timer event.
