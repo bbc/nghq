@@ -356,7 +356,7 @@ static void *set_timer_cb (nghq_session *session, double seconds, void *session_
   timer->session = session;
   timer->event_fn = fn;
   timer->nghq_data = nghq_data;
-  ev_timer_init (&timer->timer, timer_event, ev_time () + seconds, 0);
+  ev_timer_init (&timer->timer, timer_event, seconds, 0);
   ev_timer_start (EV_DEFAULT_UC_ &timer->timer);
   return timer;
 }
@@ -381,7 +381,7 @@ static int reset_timer_cb (nghq_session *session, void *session_user_data, void 
   if (ev_is_active(&timer->timer)) {
     ev_timer_stop (EV_DEFAULT_UC_ &timer->timer);
   }
-  ev_timer_set (&timer->timer, ev_time () + seconds, 0);
+  ev_timer_set (&timer->timer, seconds, 0);
   ev_timer_start (EV_DEFAULT_UC_ &timer->timer);
   return NGHQ_OK;
 }
