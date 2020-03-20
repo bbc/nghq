@@ -193,6 +193,7 @@ ssize_t quic_transport_write_stream (nghq_session *ctx, nghq_stream *stream,
   }
   if ((len_in + off + _make_varlen_int (NULL, len_in)) > buf_out_len) {
     payload_len = buf_out_len - off - _make_varlen_int (NULL, buf_out_len - off);
+    buf_out[0] = buf_out[0] & 0xfe; /* Make sure not to set any FIN bits */
   }
   off += _make_varlen_int (buf_out + off, payload_len);
   assert(off + payload_len <= buf_out_len);
