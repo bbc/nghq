@@ -2147,4 +2147,13 @@ void nghq_update_timeout (nghq_session *session) {
   }
 }
 
+uint32_t nghq_get_packet_number (nghq_session *session, uint8_t *buf,
+                                 size_t len, uint8_t *num_bytes)
+{
+  if (num_bytes != NULL) {
+    *num_bytes = (buf[0] & 0x03) + 1;
+  }
+  return (uint32_t) get_packet_number(buf[0], buf + session->session_id_len + 1);
+}
+
 // vim:ts=8:sts=2:sw=2:expandtab:

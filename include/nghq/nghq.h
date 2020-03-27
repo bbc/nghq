@@ -431,6 +431,28 @@ extern void nghq_free_session_id_string (uint8_t *buf);
  */
 extern int nghq_check_timeout (nghq_session *session);
 
+/**
+ * @brief Get the packet number from a packet
+ *
+ * This is a convenience function to support AL-FEC. It provides the packet
+ * number present in a packet without doing any other processing on the packet.
+ * It will not rebuild the full packet number, only what is literally carried
+ * in the header field. As a result, the return value is only 32 bit, not the
+ * full 64 bit representation of the internal packet number. This function
+ * DOES NOT check whether the packet is sane, for example it will not validate
+ * the session ID.
+ *
+ * @param session The NGHQ session context
+ * @param buf A buffer containing the packet
+ * @param len The length of @p buf
+ * @param num_bytes If not-NULL, then the value will be populated with the
+ *            number of bytes that the packet number used on the wire.
+ *
+ * @return The packet number contained in the packet header.
+ */
+extern uint32_t nghq_get_packet_number (nghq_session *session, uint8_t *buf,
+                                        size_t len, uint8_t *num_bytes);
+
 /*
  * Session Callbacks
  */
