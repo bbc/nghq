@@ -105,7 +105,7 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
                                       const nghq_settings *settings,
                                       const nghq_transport_settings *transport,
                                       void *session_user_data) {
-  nghq_session *session = (nghq_session *) malloc (sizeof(nghq_session));
+  nghq_session *session = (nghq_session *) calloc (1, sizeof(nghq_session));
   int i;
 
   if (session == NULL) {
@@ -154,6 +154,8 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
   session->send_buf = NULL;
   session->recv_buf = NULL;
 
+  session->tx_pkt_num = 0;
+  session->rx_pkt_num = 0;
   session->remote_pktnum = 2;
   session->last_remote_pkt_num = 0;
   session->session_timeout_timer = NULL;
@@ -177,6 +179,8 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
   session->t_params.max_ack_delay = 0; //TODO?
   session->t_params.disable_active_migration = true;
   session->t_params.active_connection_id_limit = 0;
+
+  gettimeofday(&session->last_recv_ts, NULL);
 
   return session;
 }
