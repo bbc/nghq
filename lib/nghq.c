@@ -629,6 +629,7 @@ int nghq_submit_push_promise (nghq_session *session,
   promised_stream->push_id = session->next_push_promise++;
   promised_stream->stream_id = NGHQ_INVALID_STREAM_ID;
   promised_stream->user_data = promised_request_user_data;
+  promised_stream->recv_state = STATE_DONE;
 
   nghq_stream_id_map_add (session->promises, promised_stream->push_id,
                           promised_stream);
