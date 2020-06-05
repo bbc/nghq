@@ -144,7 +144,8 @@ ssize_t quic_transport_write_quic_header (nghq_session *ctx, uint8_t *buf,
     case NGHQ_PKTNUM_LEN_4_BYTE:
       put_packet_number (packet_number,
                          ctx->transport_settings.packet_number_length,
-                         buf, len);
+                         buf + off, len);
+      off += ctx->transport_settings.packet_number_length;
       break;
     case NGHQ_PKTNUM_LEN_1_BYTE:
     case NGHQ_PKTNUM_LEN_AUTO:
