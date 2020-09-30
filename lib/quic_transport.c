@@ -186,6 +186,15 @@ ssize_t quic_transport_write_stream (nghq_session *ctx, nghq_stream *stream,
     stream_frame_type = stream_frame_type | 0x01;
   }
 
+  if (_make_varlen_int (NULL, stream_frame_type) +
+      _make_varlen_int (NULL, (uint64_t) stream->stream_id) +
+      ((stream->tx_offset)?(_make_varlen_int (NULL, stream->tx_offset)):(0)) +
+      _make_varlen_int (NULL, payload_len) > buf_out_len) {
+    /* Not enough space to write a stream header */
+    ERROR ("Not enough space in packet to write even the stream header!\n");
+    return NGHQ_TOO_MUCH_DATA;
+  }
+
   /* Write the stream header */
   off += _make_varlen_int (buf_out + off, stream_frame_type);
   off += _make_varlen_int (buf_out + off, (uint64_t) stream->stream_id);
@@ -193,6 +202,10 @@ ssize_t quic_transport_write_stream (nghq_session *ctx, nghq_stream *stream,
     off += _make_varlen_int (buf_out + off, stream->tx_offset);
   }
   if ((len_in + off + _make_varlen_int (NULL, len_in)) > buf_out_len) {
+    if (buf_out_len < off - _make_varlen_int (NULL, buf_out_len - off)) {
+      /* Not enough space to create a packet */
+      return NGHQ_TOO_MUCH_DATA;
+    }
     payload_len = buf_out_len - off - _make_varlen_int (NULL, buf_out_len - off);
     buf_out[0] = buf_out[0] & 0xfe; /* Make sure not to set any FIN bits */
   }

@@ -436,7 +436,7 @@ int nghq_session_send (nghq_session *session) {
                                                 &written);
 
       if (off < NGHQ_OK) {
-        rv = (int) off;
+        if (off != NGHQ_TOO_MUCH_DATA) rv = (int) off;
         break;
       }
       packet_len += off;
