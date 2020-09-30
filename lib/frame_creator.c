@@ -55,16 +55,16 @@ size_t _calculate_frame_size (uint64_t payload_len, nghq_frame_type type) {
  * Returns the length of the header (which should be sizeof(buf) - payload_len)
  */
 size_t _create_frame_header (size_t payload_len, nghq_frame_type type,
-                           uint8_t flags, uint8_t* buf) {
+                             uint8_t* buf) {
   size_t off = _make_varlen_int(buf, type);
   off += _make_varlen_int(buf+off, payload_len);
   assert(off > 0);
   return off;
 }
 
-void _create_frame (nghq_frame_type type, uint8_t flags, const uint8_t* payload,
+void _create_frame (nghq_frame_type type, const uint8_t* payload,
                     size_t payload_len, uint8_t* frame, size_t frame_length) {
-  size_t header_length = _create_frame_header (payload_len, type, flags, frame);
+  size_t header_length = _create_frame_header (payload_len, type, frame);
 
   /* Something has gone very wrong if this asserts... */
   assert(frame_length == (header_length + payload_len));
