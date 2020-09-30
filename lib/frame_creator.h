@@ -99,23 +99,6 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
                              uint8_t** frame, size_t* frame_len);
 
 /**
- * @brief Package a HTTP/QUIC PRIORITY frame
- *
- * The caller is responsible for freeing the allocated frame memory in @p frame.
- *
- * @param flags The flags to set on the PRIORTIY frame
- * @param prio_frame The structure containing the contents for the frame
- * @param frame The buffer to return the packaged frame in
- * @param frame_len The length of @p frame
- *
- * @return NGHQ_OK on success
- * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
- *    allocated
- */
-int create_priority_frame(uint8_t flags, nghq_priority_frame *prio_frame,
-                          uint8_t** frame, size_t* frame_len);
-
-/**
  * @brief Package a HTTP/QUIC CANCEL_PUSH frame
  *
  * The caller is responsible for freeing the allocated frame memory in @p frame.

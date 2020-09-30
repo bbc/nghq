@@ -181,55 +181,6 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
  * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
- * |                 Prioritised Request ID (i)                  ...  PRIORITY
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
- * |                  Stream Dependency ID (i)                   ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |   Weight (8)  |
- * +-+-+-+-+-+-+-+-+
- */
-int create_priority_frame(uint8_t flags, nghq_priority_frame *prio_frame,
-                          uint8_t** frame, size_t* frame_len) {
-  size_t header_length, payload_length, off;
-
-  /* 2 bytes for the flags byte and the weight byte */
-  payload_length = 2 + _make_varlen_int(NULL, prio_frame->prio_elem_id);
-  if (prio_frame->elem_dep_type != nghq_elem_root) {
-    payload_length += _make_varlen_int(NULL, prio_frame->elem_dep_id);
-  }
-  assert(payload_length > 2);
-
-  *frame_len = _calculate_frame_size(payload_length, NGHQ_FRAME_TYPE_PRIORITY);
-
-  *frame = (uint8_t *) malloc(*frame_len);
-  if (*frame == NULL) {
-    *frame_len = 0;
-    return NGHQ_OUT_OF_MEMORY;
-  }
-
-  header_length = _create_frame_header (payload_length,
-                                        NGHQ_FRAME_TYPE_PRIORITY, flags, *frame);
-
-  assert ((header_length + payload_length) == *frame_len);
-
-  off = header_length;
-  off += _make_varlen_int((*frame) + off, prio_frame->prio_elem_id);
-  if (prio_frame->elem_dep_type != nghq_elem_root) {
-    off += _make_varlen_int((*frame) + off, prio_frame->elem_dep_id);
-  }
-  (*frame)[off] = prio_frame->weight;
-
-  return NGHQ_OK;
-}
-
-/*
- *  0                   1                   2                   3
- *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                           Type (i)                          ...  Frame
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
- * |                          Length (i)                         ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                          Push ID (i)                        ... CANCEL_PUSH
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
