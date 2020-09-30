@@ -754,7 +754,10 @@ static nghq_transport_settings g_trans_settings = {
     NULL,                        /* destination_address */
     0,                           /* destination_address_len */
     NULL,                        /* source_address */
-    0                            /* source_address_len */
+    0,                           /* source_address_len */
+    NGHQ_PKTNUM_LEN_AUTO,        /* packet_number_length */
+    0,                           /* encryption_overhead */
+    5                            /* stream_timeout */
 };
 
 static void recv_idle_cb (EV_P_ ev_idle *w, int revents)
