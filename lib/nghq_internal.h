@@ -56,6 +56,8 @@ typedef enum nghq_stream_state {
 #define STREAM_FLAG_STARTED UINT8_C(0x01)
 #define STREAM_FLAG_TRAILERS_PROMISED UINT8_C(0x02)
 #define STREAM_FLAG_FIN_SEEN UINT8_C(0x04)
+#define STREAM_FLAG_LONG_DATA_FRAME_REQ UINT8_C(0x08)
+#define STREAM_FLAG_LONG_DATA_FRAME_FIN UINT8_C(0x10)
 
 typedef struct nghq_gap {
   uint64_t begin;
@@ -97,6 +99,7 @@ typedef struct {
   nghq_error    status;
   uint8_t       flags;
   size_t        next_recv_offset;
+  size_t        long_data_frame_remaining;
   nghq_stream_frame* active_frames;
   void *        timer_id;
 } nghq_stream;
@@ -104,6 +107,8 @@ typedef struct {
 #define STREAM_STARTED(x) (x & STREAM_FLAG_STARTED)
 #define STREAM_TRAILERS_PROMISED(x) (x & STREAM_FLAG_TRAILERS_PROMISED)
 #define STREAM_FIN_SEEN(x) (x & STREAM_FLAG_FIN_SEEN)
+#define STREAM_LONG_DATA_FRAME_REQ(x) (x & STREAM_FLAG_LONG_DATA_FRAME_REQ)
+#define STREAM_LONG_DATA_FRAME_FIN(x) (x & STREAM_FLAG_LONG_DATA_FRAME_FIN)
 
 typedef struct tls13_varlen_vector {
   size_t size;
@@ -221,6 +226,9 @@ struct nghq_session {
 
   void *        session_timeout_timer;
   int           session_timed_out;
+
+  nghq_log_level      log_level;
+  nghq_log_callback  *log_cb;
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,

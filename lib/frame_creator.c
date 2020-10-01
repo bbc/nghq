@@ -62,9 +62,9 @@ size_t _create_frame_header (size_t payload_len, nghq_frame_type type,
   return off;
 }
 
-void _create_frame (nghq_frame_type type, const uint8_t* payload,
+void _create_frame (nghq_frame_type type, size_t len, const uint8_t* payload,
                     size_t payload_len, uint8_t* frame, size_t frame_length) {
-  size_t header_length = _create_frame_header (payload_len, type, frame);
+  size_t header_length = _create_frame_header (len, type, frame);
 
   /* Something has gone very wrong if this asserts... */
   assert(frame_length == (header_length + payload_len));
@@ -84,21 +84,24 @@ void _create_frame (nghq_frame_type type, const uint8_t* payload,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
 ssize_t create_data_frame(const uint8_t* block, size_t block_len,
-                          uint8_t** frame, size_t* frame_len) {
+                          size_t full_len, uint8_t** frame, size_t* frame_len) {
   size_t block_to_write = block_len;
 
   if (block == NULL) {
     return NGHQ_ERROR;
   }
 
-  *frame_len = _calculate_frame_size (block_to_write, NGHQ_FRAME_TYPE_DATA);
+  /* The full length might be longer than this block if nghq_promise_data() was
+   * used */
+  *frame_len = _make_varlen_int(NULL, full_len)
+      + _make_varlen_int(NULL, NGHQ_FRAME_TYPE_DATA) + block_to_write;
 
   *frame = (uint8_t *) malloc(*frame_len);
   if (*frame == NULL) {
     return NGHQ_OUT_OF_MEMORY;
   }
 
-  _create_frame(NGHQ_FRAME_TYPE_DATA, 0, block, block_to_write, *frame,
+  _create_frame(NGHQ_FRAME_TYPE_DATA, full_len, block, block_to_write, *frame,
                 *frame_len);
 
   return (ssize_t) block_to_write;
@@ -163,8 +166,8 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
     _make_varlen_int(*frame + 1, (uint64_t) push_id);
   }
 
-  _create_frame(NGHQ_FRAME_TYPE_HEADERS, 0, hdr_block, block_to_write,
-                *frame + push_stream_header_len, *frame_len);
+  _create_frame(NGHQ_FRAME_TYPE_HEADERS, block_to_write, hdr_block,
+                block_to_write, *frame + push_stream_header_len, *frame_len);
 
   free(hdr_block);
 
@@ -172,6 +175,7 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
 
   return (ssize_t) hdrs_compressed;
 }
+
 
 /*
  *  0                   1                   2                   3
@@ -200,7 +204,7 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
   }
 
   header_length = _create_frame_header (push_id_length,
-                                        NGHQ_FRAME_TYPE_CANCEL_PUSH, 0, *frame);
+                                        NGHQ_FRAME_TYPE_CANCEL_PUSH, *frame);
 
   _make_varlen_int((*frame) + header_length, push_id);
 
@@ -271,7 +275,7 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
   }
 
   header_length = _create_frame_header (payload_length,
-                                        NGHQ_FRAME_TYPE_PUSH_PROMISE, 0,
+                                        NGHQ_FRAME_TYPE_PUSH_PROMISE,
                                         *frame);
 
   /* Something has gone very wrong if this asserts... */
@@ -313,7 +317,7 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
   }
 
   header_length = _create_frame_header (last_stream_id_length,
-                                        NGHQ_FRAME_TYPE_GOAWAY, 0, *frame);
+                                        NGHQ_FRAME_TYPE_GOAWAY, *frame);
 
   _make_varlen_int((*frame) + header_length, last_stream_id);
 
@@ -347,7 +351,7 @@ int create_max_push_id_frame(uint64_t max_push_id, uint8_t** frame,
   }
 
   header_length = _create_frame_header (max_push_id_length,
-                                        NGHQ_FRAME_TYPE_MAX_PUSH_ID, 0, *frame);
+                                        NGHQ_FRAME_TYPE_MAX_PUSH_ID, *frame);
 
   _make_varlen_int((*frame) + header_length, max_push_id);
 

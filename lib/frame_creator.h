@@ -54,6 +54,9 @@ typedef struct nghq_hdr_compression_ctx nghq_hdr_compression_ctx;
  *
  * @param block The buffer containing the data block to package
  * @param block_len The length of @p block
+ * @param full_len What value to put in the DATA frame header, if you're
+ *    expecting to keep feeding in more data for this frame after the first
+ *    block of data in @p block
  * @param frame The buffer to return the packaged frame in
  * @param frame_len The length of @p frame
  *
@@ -63,7 +66,7 @@ typedef struct nghq_hdr_compression_ctx nghq_hdr_compression_ctx;
  *    allocated
  */
 ssize_t create_data_frame(const uint8_t* block, size_t block_len,
-                          uint8_t** frame, size_t* frame_len);
+                          size_t full_len, uint8_t** frame, size_t* frame_len);
 
 /**
  * @brief Package a series of name-value pair headers into a HEADERS frame

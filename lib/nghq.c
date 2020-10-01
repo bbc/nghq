@@ -775,6 +775,33 @@ int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
   return rv;
 }
 
+int nghq_promise_data (nghq_session *session, size_t len, int final,
+                       void *request_user_data) {
+  nghq_stream* stream;
+
+  if (session == NULL) {
+    return NGHQ_ERROR;
+  }
+
+  stream = nghq_stream_id_map_stream_search (session->transfers,
+                                             request_user_data);
+  if ((stream == NULL) || (stream->send_state > STATE_BODY)) {
+    return NGHQ_REQUEST_CLOSED;
+  }
+
+  if (stream->long_data_frame_remaining) {
+    return NGHQ_TOO_MUCH_DATA;
+  }
+
+  stream->long_data_frame_remaining = len;
+  stream->flags |= STREAM_FLAG_LONG_DATA_FRAME_REQ;
+  if (final) {
+    stream->flags |= STREAM_FLAG_LONG_DATA_FRAME_FIN;
+  }
+
+  return NGHQ_OK;
+}
+
 ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
                                size_t len, int final, void *request_user_data) {
   nghq_io_buf* frame;
@@ -803,8 +830,34 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
 
   frame = (nghq_io_buf *) calloc (1, sizeof(nghq_io_buf));
 
-  rv = create_data_frame (buf, len, &frame->buf, &frame->buf_len);
-  frame->complete = (final)?(1):(0);
+  if (stream->long_data_frame_remaining) {
+    if (STREAM_LONG_DATA_FRAME_REQ(stream->flags)) {
+      rv = create_data_frame (buf, len, stream->long_data_frame_remaining,
+                              &frame->buf, &frame->buf_len);
+      stream->flags &= !STREAM_FLAG_LONG_DATA_FRAME_REQ;
+    } else {
+      size_t chunk_len = len;
+      if (chunk_len > stream->long_data_frame_remaining) {
+        chunk_len = stream->long_data_frame_remaining;
+      }
+      frame->buf = malloc (chunk_len);
+      if (frame->buf == NULL) {
+        return NGHQ_OUT_OF_MEMORY;
+      }
+
+      memcpy (frame->buf, buf, chunk_len);
+      stream->long_data_frame_remaining -= chunk_len;
+
+      if ((stream->long_data_frame_remaining == 0)
+          && STREAM_LONG_DATA_FRAME_FIN(stream->flags)) {
+        frame->complete = 1;
+      }
+    }
+  } else {
+    rv = create_data_frame (buf, len, len, &frame->buf, &frame->buf_len);
+    frame->complete = (final)?(1):(0);
+  }
+
   frame->send_pos = frame->buf;
   frame->remaining = frame->buf_len;
 

@@ -100,6 +100,7 @@ typedef struct server_session {
     int socket;
     struct sockaddr_storage mcast_addr;
     struct sockaddr_storage send_addr;
+    int single_data_frame;
 } server_session;
 
 static char method_hdr[] = ":method";
@@ -417,6 +418,15 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
     resp_signature_header.value = NULL;
     resp_signature_header.value_len = 0;
 #endif
+
+    if (g_server_session.single_data_frame) {
+        result = nghq_promise_data (g_server_session.session, file_size, 1,
+                                    (void *) promise_request_user_data);
+        if (result != NGHQ_OK) {
+          fprintf(stderr, "Failed to promise a DATA frame of %lu bytes: %s\n",
+                  file_size, nghq_strerror(result));
+        }
+    }
 
     printf("Payload for server push:\n");
     size_t sent_bytes = 0;
@@ -922,13 +932,14 @@ int main(int argc, char *argv[])
 {
     static const int on = 1;
 
-    static const char short_opts[] = "hi:p:t:u:";
+    static const char short_opts[] = "hi:p:t:u:d";
     static const struct option long_opts[] = {
         {"help", 0, NULL, 'h'},
         {"session-id", 1, NULL, 'i'},
         {"port", 1, NULL, 'p'},
         {"ttl", 1, NULL, 't'},
         {"url-prefix", 1, NULL, 'u'},
+        {"single-data", 0, NULL, 'd'},
         {NULL, 0, NULL, 0}
     };
 
@@ -951,6 +962,8 @@ int main(int argc, char *argv[])
     int option_index = 0;
 
     mcast_ifc_list *ifcs = NULL;
+
+    bzero ((void *) &g_server_session, sizeof(server_session));
 
     ifcs = get_multicast_interfaces();
     if (ifcs) {
@@ -991,6 +1004,9 @@ int main(int argc, char *argv[])
                 err_out = 1;
             }
             break;
+        case 'd':
+            g_server_session.single_data_frame = 1;
+            break;
         default:
             usage = 1;
             err_out = 1;
@@ -1006,7 +1022,7 @@ int main(int argc, char *argv[])
 
     if (usage) {
       fprintf(err_out?stderr:stdout,
-"Usage: %s [-h] [-p <port>] [-i <id>] [-t <ttl>] [-u <url-prefix>] [<mcast-grp> [<ifc-addr>]] <send-directory>\n",
+"Usage: %s [-h] [-d] [-p <port>] [-i <id>] [-t <ttl>] [-u <url-prefix>] [<mcast-grp> [<ifc-addr>]] <send-directory>\n",
               argv[0]);
     }
     if (help) {
@@ -1017,6 +1033,7 @@ int main(int argc, char *argv[])
 "  --session-id    -i <id>   The session ID to send [default: " STR(DEFAULT_SESSION_ID) "].\n"
 "  --ttl           -t <ttl>  The TTL to use for multicast [default: " STR(DEFAULT_MCAST_TTL) "].\n"
 "  --url-prefix    -u <url>  The URL prefix to transmit with the files [default: " DEFAULT_URL_PREFIX "].\n"
+"  --single-data   -d        Package all files in a single HTTP/3 DATA frame.\n"
 "\n"
 "Arguments:\n"
 "  <mcast-grp>      The multicast group to send on [default: %s].\n"

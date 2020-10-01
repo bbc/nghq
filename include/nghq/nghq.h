@@ -899,10 +899,40 @@ extern int nghq_feed_headers (nghq_session *session, const nghq_header **hdrs,
                               void *request_user_data);
 
 /**
+ * @brief Promise to send data
+ *
+ * This function allows the user to create a HTTP/3 DATA frame larger than they
+ * might wish to keep in one buffer. For example, if the user knows that they
+ * have 1GB of data to send, then this function allows them to maximise the
+ * efficiency of the HTTP framing layer by only having a single HTTP header.
+ *
+ * The user then simply calls nghq_feed_payload_data() as normal to feed in
+ * blocks of data.
+ *
+ * If @p final is set to a non-zero value, then this call will also set the
+ * final bit in the QUIC header and close the request once the full amount of
+ * data has been submitted to nghq_feed_payload_data().
+ *
+ * @return NGHQ_OK if the call succeeds
+ * @return NGHQ_TOO_MUCH_DATA if this transfer is waiting on more data from a
+ *    previous invocation of this function
+ * @return NGHQ_REQUEST_CLOSED if the request is closed
+ * @return NGHQ_ERROR if the session doesn't exist or another internal error
+ *    occurs.
+ */
+extern int nghq_promise_data (nghq_session *session, size_t len, int final,
+                              void *request_user_data);
+
+/**
  * @brief Send a block of request or response data
  *
  * Feeds @p len bytes of data @p buf into a request or response represented by
- * request_user_data.
+ * request_user_data. If nghq_promise_data() has previously opened a larger DATA
+ * frame, then this buffer will use that frame. If the previously-reserved DATA
+ * frame is not large enough for this new buffer a new buffer will be created,
+ * unless the final parameter to nghq_promise_data() was non-zero in which case
+ * this function will return only the number of bytes that would fit before the
+ * transfer was closed.
  *
  * Internally, this will buffer up the data, create the packets and then
  * nghq_session_send() will send them.
