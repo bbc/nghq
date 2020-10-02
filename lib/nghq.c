@@ -256,7 +256,7 @@ nghq_srv_fail_session:
 }
 
 int nghq_session_close (nghq_session *session, nghq_error reason) {
-  nghq_stream *it;
+  nghq_stream *it = NULL;
   if (session == NULL) {
     return NGHQ_SESSION_CLOSED;
   }
@@ -2193,7 +2193,7 @@ void nghq_update_timeout (nghq_session *session) {
   }
 }
 
-uint32_t nghq_get_packet_number (nghq_session *session, uint8_t *buf,
+uint32_t nghq_get_packet_number (nghq_session *session, const uint8_t *buf,
                                  size_t len, uint8_t *num_bytes)
 {
   if (num_bytes != NULL) {
