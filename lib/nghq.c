@@ -1087,35 +1087,12 @@ int _nghq_stream_headers_frame (nghq_session* session, nghq_stream* stream,
   return NGHQ_OK;
 }
 
-static int _nghq_stream_priority_frame (nghq_session* session,
-                                        nghq_stream* stream,
-                                        nghq_stream_frame *frame) {
-  nghq_priority_frame prio;
-
-  if ((stream->stream_id != NGHQ_CONTROL_CLIENT) &&
-      (stream->stream_id != NGHQ_CONTROL_SERVER)) {
-    return NGHQ_HTTP_WRONG_STREAM;
-  } else if ((stream->stream_id == NGHQ_CONTROL_CLIENT) &&
-             (session->role == NGHQ_ROLE_CLIENT)) {
-    return NGHQ_HTTP_WRONG_STREAM;
-  } else if ((stream->stream_id == NGHQ_CONTROL_SERVER) &&
-             (session->role == NGHQ_ROLE_SERVER)) {
-    return NGHQ_HTTP_WRONG_STREAM;
-  }
-
-  parse_priority_frame (frame->data, &prio);
-
-  DEBUG("TODO: Process priority frames\n");
-
-  return NGHQ_OK;
-}
-
 static int _nghq_stream_cancel_push_frame (nghq_session* session,
                                            nghq_stream* stream,
                                            nghq_stream_frame *frame) {
   uint64_t push_id;
 
-  parse_cancel_push_frame (frame->data, &push_id);
+  parse_cancel_push_frame (session, frame->data, &push_id);
 
   nghq_stream_id_map_remove(session->promises, push_id);
 
@@ -1609,9 +1586,6 @@ int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,
             break;
           case NGHQ_FRAME_TYPE_HEADERS:
             rv = _nghq_stream_headers_frame (session, stream, frame);
-            break;
-          case NGHQ_FRAME_TYPE_PRIORITY:
-            rv = _nghq_stream_priority_frame (session, stream, frame);
             break;
           case NGHQ_FRAME_TYPE_CANCEL_PUSH:
             rv = _nghq_stream_cancel_push_frame (session, stream, frame);

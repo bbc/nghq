@@ -137,51 +137,7 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
   return 0;
 }
 
-/*
- *  0                   1                   2                   3
- *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                           Type (i)                          ...  Frame
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
- * |                          Length (i)                         ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
- * |PT |DT |X|Empty|          Prioritized Element ID (i)         ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |                [Element Dependency ID (i)]                  ...
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |   Weight (8)  |
- * +-+-+-+-+-+-+-+-+
- */
-int parse_priority_frame (nghq_io_buf* buf, nghq_priority_frame* prio_frame) {
-  size_t off = 0;
-  nghq_frame_type type;
-  uint64_t frame_length = _get_frame_payload_length(buf->send_pos, &type, &off);
-
-  if (type != NGHQ_FRAME_TYPE_PRIORITY) {
-    return NGHQ_ERROR;
-  }
-  if (prio_frame == NULL) {
-    return NGHQ_INTERNAL_ERROR;
-  }
-  if (buf->remaining < frame_length + off) {
-    return frame_length + off;
-  }
-
-  prio_frame->prio_elem_type = (buf->send_pos[off] & 0xC0) >> 6;
-  prio_frame->elem_dep_type = (buf->send_pos[off] & 0x30) >> 4;
-  prio_frame->exclusive = (buf->send_pos[off++] & 0x80) >> 3;
-  prio_frame->prio_elem_id = _get_varlen_int(buf->send_pos+off, &off,
-                                             frame_length);
-  if (prio_frame->elem_dep_type != nghq_elem_root) {
-    prio_frame->elem_dep_id = _get_varlen_int(buf->send_pos+off, &off,
-                                              frame_length);
-  }
-  prio_frame->weight = buf->send_pos[off];
-
-  buf->send_pos += frame_length;
-  buf->remaining -= frame_length;
-
-  return NGHQ_OK;
+  return 0;
 }
 
 /*

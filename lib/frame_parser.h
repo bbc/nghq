@@ -95,21 +95,6 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
                              nghq_header*** hdrs, size_t* num_hdrs);
 
 /**
- * @brief Parse a HTTP/QUIC PRIORITY frame
- *
- * This function will update @p buf send_pos and remaining values to reflect
- * the buffer after this frame has been parsed.
- *
- * @param buf The IO buffer to look for the PRIORITY frame in
- * @param prio_frame The structure to contain the contents of the PRIORITY frame
- *
- * @return NGHQ_OK, NGHQ_ERROR if no PRIORITY frame was found at @p buf, or
- *    NGHQ_INTERNAL_ERROR if the buffer at @p prio_frame is NULL.
- *
- */
-int parse_priority_frame (nghq_io_buf* buf, nghq_priority_frame* prio_frame);
-
-/**
  * @brief Parse a HTTP/QUIC CANCEL_PUSH frame
  *
  * This function does not check if @p push_id is a valid Push ID, this function
