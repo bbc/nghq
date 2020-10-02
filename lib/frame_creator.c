@@ -81,7 +81,7 @@ void _create_frame (nghq_frame_type type, size_t len, const uint8_t* payload,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
  * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
- * |                         Body Block (*)                        |  DATA
+ * |                           Data (*)                            |  DATA
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
 ssize_t create_data_frame(nghq_session *session, const uint8_t* block,
@@ -122,7 +122,7 @@ ssize_t create_data_frame(nghq_session *session, const uint8_t* block,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
  * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
- * |                        Header Block (*)                       |  HEADERS
+ * |                    Encoded Field Section (*)                  |  HEADERS
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
 ssize_t create_headers_frame(nghq_session *session,
@@ -233,9 +233,15 @@ int create_cancel_push_frame(nghq_session *session, uint64_t push_id,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Header
  * |                          Length (i)                         ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
- * |         Identifier (16)       |            Length (i)       ...  SETTINGS
+ * |                        Identifier (i)                       ...  SETTINGS
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
- * |                          Contents (?)                       ...
+ * |                           Value (i)                         ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                       [Identifier (i)]                      ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                          [Value (i)]                        ...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                             [...]                             |
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 int create_settings_frame(nghq_session* session, nghq_settings* settings,
@@ -254,7 +260,7 @@ int create_settings_frame(nghq_session* session, nghq_settings* settings,
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ===========
  * |                          Push ID (i)                        ...  PUSH_
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  PROMISE
- * |                       Header Block (*)                      ...  Payload
+ * |                   Encoded Field Section (*)                 ...  Payload
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 ssize_t create_push_promise_frame(nghq_session *session,

@@ -32,8 +32,8 @@
 #define QUIC_FRAME_STREAM_OFF_LEN_FIN 0x0FULL
 /* MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS, DATA_BLOCKED, STREAM_DATA_BLOCKED,
  * STREAMS_BLOCKED, NEW_CONNECTION_ID, RETIRE_CONNECTION_ID, PATH_CHALLENGE,
- * PATH_RESPONSE, CONNECTION_CLOSE frames prohibited in multicast QUIC
- * (0x10 - 0x1d)
+ * PATH_RESPONSE, CONNECTION_CLOSE and HANDSHAKE_DONE frames prohibited in
+ * multicast QUIC (0x10 - 0x1e)
  */
 
 ssize_t _parse_stream_frame (nghq_session *ctx, uint8_t stream_type,
