@@ -102,10 +102,6 @@ AC_DEFINE_UNQUOTED([HAVE_OPENSSL], [$HAVE_OPENSSL], [If we have OpenSSL availabl
 AC_SUBST([OPENSSL_CFLAGS])
 AC_SUBST([OPENSSL_LIBS])
 
-AC_ARG_ENABLE([debug],
-    [AS_HELP_STRING([--enable-debug], [Enable debugging output from the library])],
-    AC_DEFINE([DEBUGOUT], 1, [Enable debugging output from the library]))
-
 AX_PACKAGE_VERSION
 
 PACKAGE_AUTOCONF_REVISION=m4_esyscmd_s([git describe --always --dirty])

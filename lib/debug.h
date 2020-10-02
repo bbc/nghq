@@ -27,19 +27,40 @@
 #define LIB_DEBUG_H_
 
 #include "config.h"
+#include "nghq_internal.h"
 
 /*
  * Stops GCC complaining about variadic macros
  */
 #pragma GCC system_header
 
-#ifdef DEBUGOUT
-#include <stdio.h>
-#define DEBUG(fmt, ...) fprintf(stdout, "%s:%d (DBG:%s): " fmt, __FILE__, __LINE__, __func__, ## __VA_ARGS__)
-#define ERROR(fmt, ...) fprintf(stderr, "%s:%d (ERR:%s): " fmt, __FILE__, __LINE__, __func__, ## __VA_ARGS__)
-#else
-#define DEBUG(...) do {} while (0)
-#define ERROR(...) do {} while (0)
-#endif /* DEBUGOUT */
+#define NGHQ_LOG_LEVEL_ALERT_STR "ALERT"
+#define NGHQ_LOG_LEVEL_ERROR_STR "ERROR"
+#define NGHQ_LOG_LEVEL_WARN_STR "WARN"
+#define NGHQ_LOG_LEVEL_INFO_STR "INFO"
+#define NGHQ_LOG_LEVEL_DEBUG_STR "DEBUG"
+#define NGHQ_LOG_LEVEL_TRACE_STR "TRACE"
+
+extern const char* log_level_as_str (nghq_log_level level);
+
+extern void nghq_log (nghq_session* session, nghq_log_level level,
+                      const char *function, const char *filename,
+                      unsigned int linenumber, const char *format, ...);
+
+#define NGHQ_LOG(session, level, format, ...) \
+  nghq_log (session, level, __func__, __FILE__, __LINE__, format, ## __VA_ARGS__)
+
+#define NGHQ_LOG_ALERT(session, fmt, ...) \
+  NGHQ_LOG (session, NGHQ_LOG_LEVEL_ALERT, fmt, ## __VA_ARGS__)
+#define NGHQ_LOG_ERROR(session, fmt, ...) \
+  NGHQ_LOG (session, NGHQ_LOG_LEVEL_ERROR, fmt, ## __VA_ARGS__)
+#define NGHQ_LOG_WARN(session, fmt, ...) \
+  NGHQ_LOG (session, NGHQ_LOG_LEVEL_WARN, fmt, ## __VA_ARGS__)
+#define NGHQ_LOG_INFO(session, fmt, ...) \
+  NGHQ_LOG (session, NGHQ_LOG_LEVEL_INFO, fmt, ## __VA_ARGS__)
+#define NGHQ_LOG_DEBUG(session, fmt, ...) \
+  NGHQ_LOG (session, NGHQ_LOG_LEVEL_DEBUG, fmt, ## __VA_ARGS__)
+#define NGHQ_LOG_TRACE(session, fmt, ...) \
+  NGHQ_LOG (session, NGHQ_LOG_LEVEL_TRACE, fmt, ## __VA_ARGS__)
 
 #endif /* LIB_DEBUG_H_ */

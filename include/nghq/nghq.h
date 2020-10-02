@@ -47,6 +47,18 @@ struct nghq_callbacks;
 typedef struct nghq_callbacks nghq_callbacks;
 
 typedef enum {
+  NGHQ_LOG_LEVEL_ALERT,
+  NGHQ_LOG_LEVEL_ERROR,
+  NGHQ_LOG_LEVEL_WARN,
+  NGHQ_LOG_LEVEL_INFO,
+  NGHQ_LOG_LEVEL_DEBUG,
+  NGHQ_LOG_LEVEL_TRACE,
+  NGHQ_LOG_LEVEL_MAX
+} nghq_log_level;
+
+#define NGHQ_LOG_LEVEL_DEFAULT NGHQ_LOG_LEVEL_WARN
+
+typedef enum {
   NGHQ_OK = 0,
   /* General client errors */
   NGHQ_ERROR = -1,
@@ -450,8 +462,51 @@ extern int nghq_check_timeout (nghq_session *session);
  *
  * @return The packet number contained in the packet header.
  */
-extern uint32_t nghq_get_packet_number (nghq_session *session, uint8_t *buf,
-                                        size_t len, uint8_t *num_bytes);
+extern uint32_t nghq_get_packet_number (nghq_session *session,
+                                        const uint8_t *buf, size_t len,
+                                        uint8_t *num_bytes);
+
+/**
+ * @brief Deliver a logging message to the application
+ *
+ * This delivers a log message to the application, if the application has
+ * indicated that it wishes to receive log messages via this callback interface.
+ */
+typedef void (*nghq_log_callback) (nghq_session *session, nghq_log_level lvl,
+                                   const char* msg, size_t len);
+
+/**
+ * @brief Set maximum log level and/or instruct NGHQ to log to application
+ *
+ * This function informs NGHQ what the maximum logging level should be in the
+ * library, and also where it should go. If @p log_cb is NULL, then logging will
+ * be done on stderr. If @p log_cb is not NULL, then all logging will be passed
+ * via the accompanying nghq_log_callback function.
+ *
+ * @param session The NGHQ session context
+ * @param max The maximum logging level
+ * @param log_cb The optional logging callback
+ * @return NGHQ_OK
+ */
+extern int nghq_set_loglevel (nghq_session *session, nghq_log_level max,
+                              nghq_log_callback log_cb);
+
+/**
+ * @brief Convenience function to get the log level from a string literal
+ *
+ * @param lvl The string containing the desired log level
+ * @param len The length of the string in @p lvl
+ * @return The desired log level.
+ */
+nghq_log_level nghq_get_loglevel_from_str (const char *lvl, size_t len);
+
+/**
+ * @brief Get the log level string for the given log level
+ *
+ * @param lvl The log level
+ * @return A reference to a NULL-terminated string that must not be freed.
+ */
+const char * nghq_get_loglevel_str (nghq_log_level lvl);
 
 /*
  * Session Callbacks

@@ -65,8 +65,9 @@ typedef struct nghq_hdr_compression_ctx nghq_hdr_compression_ctx;
  * @return NGHQ_OUT_OF_MEMORY if memory for the new DATA frame couldn't be
  *    allocated
  */
-ssize_t create_data_frame(const uint8_t* block, size_t block_len,
-                          size_t full_len, uint8_t** frame, size_t* frame_len);
+ssize_t create_data_frame(nghq_session *session, const uint8_t* block,
+                          size_t block_len, size_t full_len, uint8_t** frame,
+                          size_t* frame_len);
 
 /**
  * @brief Package a series of name-value pair headers into a HEADERS frame
@@ -97,7 +98,8 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
  *    allocated
  * @return NGHQ_HDR_COMPRESS_FAILURE if the headers couldn't be compressed.
  */
-ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
+ssize_t create_headers_frame(nghq_session *session,
+                             nghq_hdr_compression_ctx* ctx, int64_t push_id,
                              const nghq_header** hdrs, size_t num_hdrs,
                              uint8_t** frame, size_t* frame_len);
 
@@ -114,8 +116,8 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
  * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
  *    allocated
  */
-int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
-                             size_t* frame_len);
+int create_cancel_push_frame(nghq_session *session, uint64_t push_id,
+                             uint8_t** frame, size_t* frame_len);
 
 /**
  * @brief Package a HTTP/QUIC SETTTINGS frame
@@ -133,8 +135,8 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
  * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
  *    allocated
  */
-int create_settings_frame(nghq_settings* settings, uint8_t** frame,
-                              size_t* frame_len);
+int create_settings_frame(nghq_session * session, nghq_settings* settings,
+                          uint8_t** frame, size_t* frame_len);
 
 /**
  * @brief Package a new Push ID and some compressed headers into a PUSH_PROMISE
@@ -159,7 +161,8 @@ int create_settings_frame(nghq_settings* settings, uint8_t** frame,
  *    allocated
  * @return NGHQ_HDR_COMPRESS_FAILURE if the headers couldn't be compressed.
  */
-ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
+ssize_t create_push_promise_frame(nghq_session * session,
+                                  nghq_hdr_compression_ctx *ctx,
                                   uint64_t push_id, const nghq_header** hdrs,
                                   size_t num_hdrs, uint8_t** frame,
                                   size_t* frame_len);
@@ -175,8 +178,8 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
  * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
  *    allocated
  */
-int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
-                            size_t* frame_len);
+int create_goaway_frame(nghq_session *session, uint64_t last_stream_id,
+                        uint8_t** frame, size_t* frame_len);
 
 /**
  * @brief Package a new HTTP/QUIC MAX_PUSH_ID frame
@@ -189,7 +192,7 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
  * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
  *    allocated
  */
-int create_max_push_id_frame(uint64_t max_push_id, uint8_t** frame,
-                                 size_t* frame_len);
+int create_max_push_id_frame(nghq_session *session, uint64_t max_push_id,
+                             uint8_t** frame, size_t* frame_len);
 
 #endif /* LIB_FRAME_CREATOR_H_ */

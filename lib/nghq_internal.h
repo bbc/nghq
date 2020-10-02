@@ -228,7 +228,7 @@ struct nghq_session {
   int           session_timed_out;
 
   nghq_log_level      log_level;
-  nghq_log_callback  *log_cb;
+  nghq_log_callback   log_cb;
 };
 
 int nghq_recv_stream_data (nghq_session* session, nghq_stream* stream,

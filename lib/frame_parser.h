@@ -67,8 +67,8 @@ ssize_t parse_frame_header (nghq_io_buf* buf, nghq_frame_type *type);
  * @return The number of bytes of @p data_len that still need to be read
  * @return NGHQ_ERROR if no DATA frame was found at @p buf
  */
-ssize_t parse_data_frame (nghq_io_buf* buf, uint8_t** data,
-                          size_t *data_len);
+ssize_t parse_data_frame (nghq_session *session, nghq_io_buf* buf,
+                          uint8_t** data, size_t *data_len);
 
 /**
  * @brief Parse a HTTP/QUIC HEADERS  frame
@@ -91,7 +91,8 @@ ssize_t parse_data_frame (nghq_io_buf* buf, uint8_t** data,
  * @return NGHQ_ERROR if no HEADERS frame was found at @p buf
  * @return NGHQ_HDR_COMPRESS_FAILURE if the header compression failed
  */
-ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
+ssize_t parse_headers_frame (nghq_session *session,
+                             nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
                              nghq_header*** hdrs, size_t* num_hdrs);
 
 /**
@@ -109,7 +110,8 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
  * @return NGHQ_OK, unless no CANCEL_PUSH frame was found at @p buf, then
  *    NGHQ_ERROR
  */
-int parse_cancel_push_frame (nghq_io_buf* buf, uint64_t* push_id);
+int parse_cancel_push_frame (nghq_session *session, nghq_io_buf* buf,
+                             uint64_t* push_id);
 
 /**
  * @brief Parse a HTTP/QUIC SETTINGS frame
@@ -131,7 +133,8 @@ int parse_cancel_push_frame (nghq_io_buf* buf, uint64_t* push_id);
  * @return NGHQ_OUT_OF_MEMORY if @p settings was NULL and this function failed
  *    to allocate memory for the structure itself.
  */
-int parse_settings_frame (nghq_io_buf* buf, nghq_settings** settings);
+int parse_settings_frame (nghq_session *session, nghq_io_buf* buf,
+                          nghq_settings** settings);
 
 /**
  * @brief Parse a HTTP/QUIC PUSH_PROMISE frame
@@ -150,7 +153,8 @@ int parse_settings_frame (nghq_io_buf* buf, nghq_settings** settings);
  * @return NGHQ_OUT_OF_MEMORY if this function failed to allocate memory
  * @return NGHQ_HDR_COMPRESS_FAILURE if the header decompression failed
  */
-ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx,
+ssize_t parse_push_promise_frame (nghq_session *session,
+                                  nghq_hdr_compression_ctx *ctx,
                                   nghq_io_buf* buf, uint64_t* push_id,
                                   nghq_header ***hdrs, size_t* num_hdrs);
 
@@ -165,7 +169,8 @@ ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx,
  *
  * @return NGHQ_OK, unless no GOAWAY frame was found at @p buf, then NGHQ_ERROR
  */
-int parse_goaway_frame (nghq_io_buf* buf, uint64_t* last_stream_id);
+int parse_goaway_frame (nghq_session *session, nghq_io_buf* buf,
+                        uint64_t* last_stream_id);
 
 /**
  * @brief Parse a MAX_PUSH_ID frame
@@ -179,7 +184,8 @@ int parse_goaway_frame (nghq_io_buf* buf, uint64_t* last_stream_id);
  * @return NGHQ_OK, unless no MAX_PUSH_ID frame was found at @p buf, then
  *    NGHQ_ERROR
  */
-int parse_max_push_id_frame (nghq_io_buf* buf, uint64_t* max_push_id);
+int parse_max_push_id_frame (nghq_session *session, nghq_io_buf* buf,
+                             uint64_t* max_push_id);
 
 
 #endif /* LIB_FRAME_PARSER_H_ */

@@ -47,8 +47,8 @@ int nghq_init_hdr_compression_ctx(nghq_hdr_compression_ctx **ctx) {
   return NGHQ_OK;
 }
 
-ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
-                          size_t block_len, int final_block,
+ssize_t nghq_inflate_hdr (nghq_session *session, nghq_hdr_compression_ctx *ctx,
+                          uint8_t* hdr_block, size_t block_len, int final_block,
                           nghq_header ***hdrs, size_t* num_hdrs) {
   struct lsqpack_header_list *hlist;
   unsigned int i;
@@ -64,18 +64,18 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
   switch (rv) {
     case LQRHS_BLOCKED:
     case LQRHS_NEED:
-      DEBUG("Header block incomplete, more bytes required!\n");
+      NGHQ_LOG_DEBUG (session, "Header block incomplete, more bytes required\n");
       return block_len;
     case LQRHS_ERROR:
-      ERROR("Error in ls-qpack\n");
+      NGHQ_LOG_ERROR (session, "Error in ls-qpack\n");
       return NGHQ_HDR_COMPRESS_FAILURE;
     default:;
   }
 
   *hdrs = (nghq_header**) malloc (hlist->qhl_count * sizeof(nghq_header*));
   if (*hdrs == NULL) {
-    ERROR("Failed to allocate %u header entries: %s\n", hlist->qhl_count,
-          strerror(errno));
+    NGHQ_LOG_ERROR (session, "Failed to allocate %u header entries: %s\n",
+                    hlist->qhl_count, strerror(errno));
     return NGHQ_OUT_OF_MEMORY;
   }
 
@@ -99,8 +99,9 @@ ssize_t nghq_inflate_hdr (nghq_hdr_compression_ctx *ctx, uint8_t* hdr_block,
 #define QPACK_HEADER_BUF_LEN 1000
 #define LSQPACK_DEFAULT_ENCODER_FLAGS LQEF_NEVER_INDEX | LQEF_NO_DYN
 
-int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
-                      size_t num_hdrs, uint8_t** hdr_block, size_t* block_len) {
+int nghq_deflate_hdr (nghq_session *session, nghq_hdr_compression_ctx *ctx,
+                      const nghq_header **hdrs, size_t num_hdrs,
+                      uint8_t** hdr_block, size_t* block_len) {
   unsigned char header_buf[QPACK_HEADER_BUF_LEN];
   unsigned char *out_buf;
   size_t header_buf_len = 0, zero = 0;
@@ -115,7 +116,7 @@ int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
 
   rv = lsqpack_enc_start_header (ctx->encoder, 0, 0);
   if (rv) {
-    ERROR("lsqpack_enc_start_header failed\n");
+    NGHQ_LOG_ERROR (session, "lsqpack_enc_start_header failed\n");
     return NGHQ_HDR_COMPRESS_FAILURE;
   }
 
@@ -128,10 +129,12 @@ int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
                              LSQPACK_DEFAULT_ENCODER_FLAGS);
 
     if (enc_status == LQES_NOBUF_ENC) {
-      ERROR("lsqpack failed trying to write to dynamic table encoder buffer!\n");
+      NGHQ_LOG_ERROR (session, "lsqpack failed trying to write to dynamic table"
+                      " encoder buffer!\n");
       return NGHQ_ERROR;
     } else if (enc_status == LQES_NOBUF_HEAD) {
-      DEBUG("Not enough room in the header buffer, try again!");
+      NGHQ_LOG_DEBUG (session, "Not enough room in the header buffer, try "
+                      "again!");
       /* This will drop us out of the for loop */
       num_hdrs = i;
     }
@@ -143,8 +146,8 @@ int nghq_deflate_hdr (nghq_hdr_compression_ctx *ctx, const nghq_header **hdrs,
                   + header_buf_len;
   out_buf = (unsigned char *) malloc (*block_len);
   if (out_buf == NULL) {
-    ERROR("Failed to allocate %lu bytes for header block: %s\n", *block_len,
-          strerror(errno));
+    NGHQ_LOG_ERROR(session, "Failed to allocate %lu bytes for header block: "
+                   "%s\n", *block_len, strerror(errno));
     return NGHQ_OUT_OF_MEMORY;
   }
 

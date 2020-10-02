@@ -42,6 +42,7 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <inttypes.h>
+#include <time.h>
 
 #include <ev.h>
 
@@ -87,6 +88,7 @@ static uint8_t _default_session_id[] = {
 #define DEFAULT_AUTHORITY         "localhost"
 #define DEFAULT_PATH_PREFIX       "/"
 #define DEFAULT_URL_PREFIX        "https://" DEFAULT_AUTHORITY DEFAULT_PATH_PREFIX
+#define DEFAULT_DEBUG_LEVEL       "INFO"
 #if HAVE_OPENSSL
 #define DEFAULT_PRIVATE_KEY_FILE "sender.key"
 #define DEFAULT_KEY_ID           "sender.pem"
@@ -821,6 +823,18 @@ static void send_idle_cb (EV_P_ ev_idle *w, int revents)
     }
 }
 
+static void log_cb (nghq_session *session, nghq_log_level lvl, const char* msg,
+                    size_t len) {
+    char timestr[30];
+    struct timespec tp;
+
+    clock_gettime (CLOCK_REALTIME, &tp);
+
+    strftime(timestr, 30, "%Y-%m-%d %H:%M:%S", localtime (&tp.tv_sec));
+    fprintf(stderr, "%s.%ld [%s] %s", timestr, tp.tv_nsec / 1000000,
+            nghq_get_loglevel_str(lvl), msg);
+}
+
 static int
 _name_and_port_to_sockaddr (struct sockaddr *addr, socklen_t addr_len,
                             const char *addr_str, unsigned short port)
@@ -932,14 +946,15 @@ int main(int argc, char *argv[])
 {
     static const int on = 1;
 
-    static const char short_opts[] = "hi:p:t:u:d";
+    static const char short_opts[] = "hi:p:t:u:sD:";
     static const struct option long_opts[] = {
         {"help", 0, NULL, 'h'},
         {"session-id", 1, NULL, 'i'},
         {"port", 1, NULL, 'p'},
         {"ttl", 1, NULL, 't'},
         {"url-prefix", 1, NULL, 'u'},
-        {"single-data", 0, NULL, 'd'},
+        {"single-data", 0, NULL, 's'},
+        {"debug", 1, NULL, 'd'},
         {NULL, 0, NULL, 0}
     };
 
@@ -958,6 +973,7 @@ int main(int argc, char *argv[])
     unsigned int ifc_idx = 0;
     const char *default_mcast_grp = NULL;
     const char *default_ifc_ip = NULL;
+    const char *debug_level = DEFAULT_DEBUG_LEVEL;
     int opt;
     int option_index = 0;
 
@@ -1004,8 +1020,11 @@ int main(int argc, char *argv[])
                 err_out = 1;
             }
             break;
-        case 'd':
+        case 's':
             g_server_session.single_data_frame = 1;
+            break;
+        case 'D':
+            debug_level = optarg;
             break;
         default:
             usage = 1;
@@ -1022,18 +1041,19 @@ int main(int argc, char *argv[])
 
     if (usage) {
       fprintf(err_out?stderr:stdout,
-"Usage: %s [-h] [-d] [-p <port>] [-i <id>] [-t <ttl>] [-u <url-prefix>] [<mcast-grp> [<ifc-addr>]] <send-directory>\n",
+"Usage: %s [-h] [-s] [-d] [-p <port>] [-i <id>] [-t <ttl>] [-u <url-prefix>] [<mcast-grp> [<ifc-addr>]] <send-directory>\n",
               argv[0]);
     }
     if (help) {
       printf("\n"
 "Options:\n"
-"  --help          -h        Display this help text.\n"
-"  --port          -p <port> UDP port number to send to [default: " STR(DEFAULT_MCAST_PORT) "].\n"
-"  --session-id    -i <id>   The session ID to send [default: " STR(DEFAULT_SESSION_ID) "].\n"
-"  --ttl           -t <ttl>  The TTL to use for multicast [default: " STR(DEFAULT_MCAST_TTL) "].\n"
-"  --url-prefix    -u <url>  The URL prefix to transmit with the files [default: " DEFAULT_URL_PREFIX "].\n"
-"  --single-data   -d        Package all files in a single HTTP/3 DATA frame.\n"
+"  --help          -h          Display this help text.\n"
+"  --port          -p <port>   UDP port number to send to [default: " STR(DEFAULT_MCAST_PORT) "].\n"
+"  --session-id    -i <id>     The session ID to send [default: " STR(DEFAULT_SESSION_ID) "].\n"
+"  --ttl           -t <ttl>    The TTL to use for multicast [default: " STR(DEFAULT_MCAST_TTL) "].\n"
+"  --url-prefix    -u <url>    The URL prefix to transmit with the files [default: " DEFAULT_URL_PREFIX "].\n"
+"  --single-data   -s          Package all files in a single HTTP/3 DATA frame.\n"
+"  --debug         -D <level>  Specify the debug level, one of ALERT, ERROR, WARN, INFO, DEBUG or TRACE [default: " DEFAULT_DEBUG_LEVEL "].\n"
 "\n"
 "Arguments:\n"
 "  <mcast-grp>      The multicast group to send on [default: %s].\n"
@@ -1132,6 +1152,11 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to get nghq instance!\n");
         return -1;
     }
+
+    nghq_set_loglevel (g_server_session.session,
+                       nghq_get_loglevel_from_str (debug_level,
+                                                   strnlen(debug_level, 6)),
+                       log_cb);
 
     ev_io_start (EV_DEFAULT_UC_ &g_server_session.socket_writable);
 

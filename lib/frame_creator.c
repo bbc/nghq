@@ -31,6 +31,7 @@
 #include "header_compression.h"
 #include "util.h"
 #include "nghq_internal.h"
+#include "debug.h"
 
 /**
  * Calculate the size of a new frame header suitable for the passed-in payload
@@ -83,8 +84,9 @@ void _create_frame (nghq_frame_type type, size_t len, const uint8_t* payload,
  * |                         Body Block (*)                        |  DATA
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-ssize_t create_data_frame(const uint8_t* block, size_t block_len,
-                          size_t full_len, uint8_t** frame, size_t* frame_len) {
+ssize_t create_data_frame(nghq_session *session, const uint8_t* block,
+                          size_t block_len, size_t full_len, uint8_t** frame,
+                          size_t* frame_len) {
   size_t block_to_write = block_len;
 
   if (block == NULL) {
@@ -104,6 +106,9 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
   _create_frame(NGHQ_FRAME_TYPE_DATA, full_len, block, block_to_write, *frame,
                 *frame_len);
 
+  NGHQ_LOG_DEBUG (session, "Created DATA frame of size %lu bytes with %lu\n",
+                  full_len, block_to_write);
+
   return (ssize_t) block_to_write;
 }
 
@@ -120,7 +125,8 @@ ssize_t create_data_frame(const uint8_t* block, size_t block_len,
  * |                        Header Block (*)                       |  HEADERS
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
+ssize_t create_headers_frame(nghq_session *session,
+                             nghq_hdr_compression_ctx* ctx, int64_t push_id,
                              const nghq_header** hdrs, size_t num_hdrs,
                              uint8_t** frame, size_t* frame_len) {
   size_t block_to_write;
@@ -132,7 +138,7 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
     return NGHQ_ERROR;
   }
 
-  hdrs_compressed = nghq_deflate_hdr (ctx, hdrs, num_hdrs, &hdr_block,
+  hdrs_compressed = nghq_deflate_hdr (session, ctx, hdrs, num_hdrs, &hdr_block,
                                       &block_to_write);
 
   *frame_len = _calculate_frame_size (block_to_write, NGHQ_FRAME_TYPE_HEADERS);
@@ -164,10 +170,15 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
      */
     *frame[0] = 0x01;
     _make_varlen_int(*frame + 1, (uint64_t) push_id);
+    NGHQ_LOG_DEBUG (session, "Added Push ID of %lu before HEADERS frame\n",
+                    push_id);
   }
 
   _create_frame(NGHQ_FRAME_TYPE_HEADERS, block_to_write, hdr_block,
                 block_to_write, *frame + push_stream_header_len, *frame_len);
+
+  NGHQ_LOG_DEBUG (session, "Created HEADERS frame of size %lu bytes with %lu "
+                  "headers\n", block_to_write, num_hdrs);
 
   free(hdr_block);
 
@@ -188,8 +199,8 @@ ssize_t create_headers_frame(nghq_hdr_compression_ctx* ctx, int64_t push_id,
  * |                          Push ID (i)                        ... CANCEL_PUSH
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
-                             size_t* frame_len) {
+int create_cancel_push_frame(nghq_session *session, uint64_t push_id,
+                             uint8_t** frame, size_t* frame_len) {
   size_t header_length, push_id_length;
 
   push_id_length = _make_varlen_int(NULL, push_id);
@@ -205,6 +216,9 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
 
   header_length = _create_frame_header (push_id_length,
                                         NGHQ_FRAME_TYPE_CANCEL_PUSH, *frame);
+
+  NGHQ_LOG_DEBUG (session, "Created CANCEL_PUSH frame for Push ID %lu\n",
+                  push_id);
 
   _make_varlen_int((*frame) + header_length, push_id);
 
@@ -224,8 +238,8 @@ int create_cancel_push_frame(uint64_t push_id, uint8_t** frame,
  * |                          Contents (?)                       ...
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-int create_settings_frame(nghq_settings* settings, uint8_t** frame,
-                              size_t* frame_len) {
+int create_settings_frame(nghq_session* session, nghq_settings* settings,
+                          uint8_t** frame, size_t* frame_len) {
   /* TODO */
   return NGHQ_ERROR;
 }
@@ -243,7 +257,8 @@ int create_settings_frame(nghq_settings* settings, uint8_t** frame,
  * |                       Header Block (*)                      ...  Payload
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
+ssize_t create_push_promise_frame(nghq_session *session,
+                                  nghq_hdr_compression_ctx *ctx,
                                   uint64_t push_id, const nghq_header** hdrs,
                                   size_t num_hdrs, uint8_t** frame,
                                   size_t* frame_len) {
@@ -258,7 +273,7 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
   push_id_length = _make_varlen_int(NULL, push_id);
   assert(push_id_length > 0);
 
-  hdrs_compressed = nghq_deflate_hdr (ctx, hdrs, num_hdrs, &hdr_block,
+  hdrs_compressed = nghq_deflate_hdr (session, ctx, hdrs, num_hdrs, &hdr_block,
                                       &block_to_write);
   if (hdrs_compressed < 0) {
     return (ssize_t) hdrs_compressed;
@@ -285,6 +300,10 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
 
   memcpy(*frame + header_length + push_id_length, hdr_block, block_to_write);
 
+  NGHQ_LOG_DEBUG (session, "Created PUSH_PROMISE frame for push ID %lu of size "
+                  "%lu bytes with %lu headers\n", push_id, block_to_write,
+                  num_hdrs);
+
   free (hdr_block);
 
   return (ssize_t) hdrs_compressed;
@@ -301,8 +320,8 @@ ssize_t create_push_promise_frame(nghq_hdr_compression_ctx *ctx,
  * |                         Stream ID (i)                       ...  GOAWAY
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
-                            size_t* frame_len) {
+int create_goaway_frame(nghq_session *session, uint64_t last_stream_id,
+                        uint8_t** frame, size_t* frame_len) {
   size_t header_length, last_stream_id_length;
 
   last_stream_id_length = _make_varlen_int(NULL, last_stream_id);
@@ -321,6 +340,9 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
 
   _make_varlen_int((*frame) + header_length, last_stream_id);
 
+  NGHQ_LOG_DEBUG (session, "Created GOAWAY frame with last stream ID %lu\n",
+                  last_stream_id);
+
   return NGHQ_OK;
 }
 
@@ -335,8 +357,8 @@ int create_goaway_frame(uint64_t last_stream_id, uint8_t** frame,
  * |                      Maximum Push ID (i)                    ... MAX_PUSH_ID
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-int create_max_push_id_frame(uint64_t max_push_id, uint8_t** frame,
-                                 size_t* frame_len) {
+int create_max_push_id_frame(nghq_session *session, uint64_t max_push_id,
+                             uint8_t** frame, size_t* frame_len) {
   size_t header_length, max_push_id_length;
 
   max_push_id_length = _make_varlen_int(NULL, max_push_id);
@@ -354,6 +376,9 @@ int create_max_push_id_frame(uint64_t max_push_id, uint8_t** frame,
                                         NGHQ_FRAME_TYPE_MAX_PUSH_ID, *frame);
 
   _make_varlen_int((*frame) + header_length, max_push_id);
+
+  NGHQ_LOG_DEBUG (session, "Created MAX_PUSH_ID frame with max push ID %lu\n",
+                  max_push_id);
 
   return NGHQ_OK;
 }

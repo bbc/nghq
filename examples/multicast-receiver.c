@@ -35,6 +35,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <netdb.h>
+#include <time.h>
 
 #include <ev.h>
 
@@ -55,6 +56,7 @@ static uint8_t _default_session_id[] = {
 #define DEFAULT_SESSION_ID_LENGTH sizeof(_default_session_id)
 #define DEFAULT_FAKE_REORDER      0 /* don't deliberately reorder packets */
 #define DEFAULT_DROP_PACKET       0 /* don't deliberately drop packets */
+#define DEFAULT_DEBUG_LEVEL       "INFO"
 
 #define OPT_ARG_DEFAULT_FAKE_REORDER   3 /* reorder every 3rd packet */
 #define OPT_ARG_DEFAULT_DROP_PACKET    7 /* drop every 7th packet */
@@ -456,6 +458,18 @@ static void recv_idle_cb (EV_P_ ev_idle *w, int revents)
     ev_io_start (EV_A_ &data->socket_readable);
 }
 
+static void log_cb (nghq_session *session, nghq_log_level lvl, const char* msg,
+                    size_t len) {
+    char timestr[30];
+    struct timespec tp;
+
+    clock_gettime (CLOCK_REALTIME, &tp);
+
+    strftime(timestr, 30, "%Y-%m-%d %H:%M:%S", localtime (&tp.tv_sec));
+    fprintf(stderr, "%s.%ld [%s] %s", timestr, tp.tv_nsec / 1000000,
+            nghq_get_loglevel_str(lvl), msg);
+}
+
 static int
 _name_and_port_to_sockaddr(struct sockaddr *addr, socklen_t addr_len,
                             const char *addr_str, unsigned short port)
@@ -498,13 +512,14 @@ int main(int argc, char *argv[])
     struct sockaddr_storage src_addr;
     struct group_source_req gsr;
 
-    static const char short_opts[] = "d::hi:p:r::";
+    static const char short_opts[] = "d::hi:p:r::D:";
     static const struct option long_opts[] = {
         {"help", 0, NULL, 'h'},
         {"session-id", 1, NULL, 'i'},
         {"port", 1, NULL, 'p'},
         {"reorder-every", 2, NULL, 'r'},
         {"drop-every", 2, NULL, 'd'},
+        {"debug", 1, NULL, 'D'},
         {NULL, 0, NULL, 0}
     };
 
@@ -518,6 +533,7 @@ int main(int argc, char *argv[])
     const char *src_ip = DEFAULT_SRC_ADDR_V4;
     const char *default_mcast_grp = NULL;
     const char *default_src_ip = NULL;
+    const char *debug_level = DEFAULT_DEBUG_LEVEL;
     int opt;
     int option_index = 0;
 
@@ -574,6 +590,9 @@ int main(int argc, char *argv[])
                 this_session.do_fake_reorder = OPT_ARG_DEFAULT_FAKE_REORDER;
             }
             break;
+        case 'D':
+            debug_level = optarg;
+            break;
         default:
             usage = 1;
             err_out = 1;
@@ -603,6 +622,7 @@ int main(int argc, char *argv[])
 "                             [default: no dropped packets].\n"
 "  --reorder-every -r [<n>]   Reorder every nth packet (n=" STR(OPT_ARG_DEFAULT_FAKE_REORDER) " if not given)\n"
 "                             [default: no reordering].\n"
+"  --debug         -D <level> Specify the debug level, one of ALERT, ERROR, WARN, INFO, DEBUG or TRACE [default: " DEFAULT_DEBUG_LEVEL "].\n"
 "\n"
 "Arguments:\n"
 "  <mcast-grp> The multicast group to receive on [default: %s].\n"
@@ -685,6 +705,16 @@ int main(int argc, char *argv[])
     /* initialise the client */
     this_session.session = nghq_session_client_new (&g_callbacks, &g_settings,
                                        &g_trans_settings, &this_session);
+
+    if (this_session.session == NULL) {
+        fprintf(stderr, "Failed to get nghq instance!\n");
+        return -1;
+    }
+
+    nghq_set_loglevel (this_session.session,
+                       nghq_get_loglevel_from_str (debug_level,
+                                                   strnlen(debug_level, 6)),
+                       log_cb);
 
     ev_io_start (EV_DEFAULT_UC_ &this_session.socket_readable);
 

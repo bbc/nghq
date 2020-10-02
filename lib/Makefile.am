@@ -30,6 +30,7 @@ DISTCLEANFILES = $(pkgconfig_DATA)
 lib_LTLIBRARIES = libnghq.la
 
 OBJECTS = \
+	debug.c \
 	frame_creator.c \
 	frame_parser.c \
 	header_compression.c \

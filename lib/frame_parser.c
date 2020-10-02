@@ -30,8 +30,7 @@
 #include "frame_parser.h"
 #include "header_compression.h"
 #include "util.h"
-
-
+#include "debug.h"
 
 /*
  * Parse the frame header - returns the length of the frame payload, excluding
@@ -82,7 +81,8 @@ ssize_t parse_frame_header (nghq_io_buf* buf, nghq_frame_type *type) {
  * |                          Payload (*)                          |  DATA
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-ssize_t parse_data_frame (nghq_io_buf* buf, uint8_t** data, size_t *data_len) {
+ssize_t parse_data_frame (nghq_session *session, nghq_io_buf* buf,
+                          uint8_t** data, size_t *data_len) {
   size_t header_len;
   nghq_frame_type frame_type;
 
@@ -96,6 +96,9 @@ ssize_t parse_data_frame (nghq_io_buf* buf, uint8_t** data, size_t *data_len) {
   *data = buf->send_pos + header_len;
   buf->send_pos += *data_len + header_len;
   buf->remaining -= *data_len + header_len;
+
+  NGHQ_LOG_DEBUG (session, "Received DATA frame of length %lu\n", *data_len);
+
   return 0;
 }
 
@@ -110,7 +113,8 @@ ssize_t parse_data_frame (nghq_io_buf* buf, uint8_t** data, size_t *data_len) {
  * |                        Header Block (*)                       |  HEADERS
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
+ssize_t parse_headers_frame (nghq_session *session,
+                             nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
                              nghq_header*** hdrs, size_t* num_hdrs) {
   size_t header_len = 0, expected_header_block_len;
   ssize_t result;
@@ -126,7 +130,7 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
     return expected_header_block_len + header_len;
   }
 
-  result = nghq_inflate_hdr(ctx, buf->send_pos + header_len,
+  result = nghq_inflate_hdr(session, ctx, buf->send_pos + header_len,
                             expected_header_block_len, 1, hdrs, num_hdrs);
 
   if (result < 0) return result;
@@ -134,8 +138,8 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
   buf->send_pos += expected_header_block_len + header_len;
   buf->remaining -= expected_header_block_len + header_len;
 
-  return 0;
-}
+  NGHQ_LOG_DEBUG (session, "Received HEADERS frame of length %lu with %lu "
+                  "headers\n", expected_header_block_len, *num_hdrs);
 
   return 0;
 }
@@ -151,7 +155,8 @@ ssize_t parse_headers_frame (nghq_hdr_compression_ctx* ctx, nghq_io_buf* buf,
  * |                          Push ID (i)                        ... CANCEL_PUSH
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-int parse_cancel_push_frame (nghq_io_buf* buf, uint64_t* push_id) {
+int parse_cancel_push_frame (nghq_session *session, nghq_io_buf* buf,
+                             uint64_t* push_id) {
   size_t off = 0;
   nghq_frame_type type;
   uint64_t frame_length = _get_frame_payload_length(buf->send_pos, &type, &off);
@@ -173,6 +178,9 @@ int parse_cancel_push_frame (nghq_io_buf* buf, uint64_t* push_id) {
 
   buf->send_pos += frame_length;
   buf->remaining -= frame_length;
+
+  NGHQ_LOG_DEBUG (session, "Received CANCEL_PUSH frame for push ID %lu\n",
+                  *push_id);
 
   return NGHQ_OK;
 }
@@ -196,7 +204,8 @@ int parse_cancel_push_frame (nghq_io_buf* buf, uint64_t* push_id) {
  * |                             [...]                             |
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-int parse_settings_frame (nghq_io_buf* buf, nghq_settings** settings) {
+int parse_settings_frame (nghq_session *session, nghq_io_buf* buf,
+                          nghq_settings** settings) {
   size_t off = 0;
   nghq_frame_type type;
   uint64_t frame_length;
@@ -269,7 +278,8 @@ int parse_settings_frame (nghq_io_buf* buf, nghq_settings** settings) {
  * |                       Header Block (*)                      ...  Payload
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx,
+ssize_t parse_push_promise_frame (nghq_session *session,
+                                  nghq_hdr_compression_ctx *ctx,
                                   nghq_io_buf* buf, uint64_t* push_id,
                                   nghq_header ***hdrs, size_t* num_hdrs) {
   size_t push_header_len = 0, push_id_len = 0, frame_payload_len;
@@ -291,14 +301,18 @@ ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx,
     return NGHQ_HTTP_MALFORMED_FRAME;
   }
 
-  result = nghq_inflate_hdr(ctx, buf->send_pos + push_header_len + push_id_len,
-                          frame_payload_len - push_id_len, 1, hdrs,
-                          num_hdrs);
+  result = nghq_inflate_hdr(session, ctx,
+                            buf->send_pos + push_header_len + push_id_len,
+                            frame_payload_len - push_id_len, 1, hdrs,
+                            num_hdrs);
 
   if (result == NGHQ_OK) {
     buf->send_pos += push_header_len + frame_payload_len;
     buf->remaining -= push_header_len + frame_payload_len;
   }
+
+  NGHQ_LOG_DEBUG (session, "Received PUSH_PROMISE frame for push ID %lu with "
+                  "%lu headers\n", *push_id, *num_hdrs);
 
   return result;
 }
@@ -314,7 +328,8 @@ ssize_t parse_push_promise_frame (nghq_hdr_compression_ctx *ctx,
  * |                         Stream ID (i)                       ...  GOAWAY
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-int parse_goaway_frame (nghq_io_buf* buf, uint64_t* last_stream_id) {
+int parse_goaway_frame (nghq_session *session, nghq_io_buf* buf,
+                        uint64_t* last_stream_id) {
   size_t off = 0;
   nghq_frame_type type;
   uint64_t frame_length = _get_frame_payload_length(buf->send_pos, &type, &off);
@@ -337,6 +352,9 @@ int parse_goaway_frame (nghq_io_buf* buf, uint64_t* last_stream_id) {
   buf->send_pos += frame_length;
   buf->remaining -= frame_length;
 
+  NGHQ_LOG_DEBUG (session, "Received GOAWAY frame with last stream ID %lu\n",
+                  *last_stream_id);
+
   return NGHQ_OK;
 }
 
@@ -351,7 +369,8 @@ int parse_goaway_frame (nghq_io_buf* buf, uint64_t* last_stream_id) {
  * |                      Maximum Push ID (i)                    ... MAX_PUSH_ID
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  Payload
  */
-int parse_max_push_id_frame (nghq_io_buf* buf, uint64_t* max_push_id) {
+int parse_max_push_id_frame (nghq_session *session, nghq_io_buf* buf,
+                             uint64_t* max_push_id) {
   size_t off = 0;
   nghq_frame_type type;
   uint64_t frame_length = _get_frame_payload_length(buf->send_pos, &type, &off);
@@ -373,6 +392,9 @@ int parse_max_push_id_frame (nghq_io_buf* buf, uint64_t* max_push_id) {
 
   buf->send_pos += frame_length;
   buf->remaining -= frame_length;
+
+  NGHQ_LOG_DEBUG (session, "Received MAX_PUSH_ID frame with max push ID %lu\n",
+                  *max_push_id);
 
   return NGHQ_OK;
 }

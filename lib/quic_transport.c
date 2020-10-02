@@ -62,7 +62,7 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
 
   /* Check the connection ID */
   if (memcmp (buf + off, ctx->session_id, ctx->session_id_len) != 0) {
-    ERROR("Mismatched session ID!");
+    NGHQ_LOG_ERROR (ctx, "Mismatched session ID!\n");
     return NGHQ_TRANSPORT_BAD_SESSION_ID;
   }
   nghq_update_timeout (ctx);
@@ -80,7 +80,7 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
   pkt_num = get_packet_number (buf[0], buf + off);
   off += pkt_num_len;
 
-  DEBUG ("Received packet with packet number %lu\n", pkt_num);
+  NGHQ_LOG_DEBUG (ctx, "Received packet with packet number %lu\n", pkt_num);
 
   /* Remove packet encryption */
   rv = (ssize_t) ctx->callbacks.decrypt_callback (ctx, buf + off, len - off,
@@ -112,7 +112,8 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
           _rv = _parse_reset_stream_frame (ctx, buf + off, len - off);
           break;
         default:
-          ERROR ("Received banned or unsupported frame type %X", frame_type);
+          NGHQ_LOG_ERROR (ctx, "Received banned or unsupported frame type %X\n",
+                          frame_type);
           return NGHQ_TRANSPORT_FRAME_FORMAT;
       }
     }
@@ -161,7 +162,8 @@ void quic_transport_abandon_packet (nghq_session *ctx, uint8_t *buf,
   uint64_t hdr_pkt_num = get_packet_number (buf[0], buf + ctx->session_id_len + 1);
   // TODO: Check all the packet number available
   if ((pktnum & 0x00000000000000FF) != (hdr_pkt_num & 0x00000000000000FF)) {
-    ERROR ("Packet number supplied does not match that in the header!\n");
+    NGHQ_LOG_WARN (ctx, "Packet number supplied does not match that in the "
+                   "header!\n");
     return;
   }
   if (pktnum == (ctx->tx_pkt_num - 1)) {
@@ -191,7 +193,8 @@ ssize_t quic_transport_write_stream (nghq_session *ctx, nghq_stream *stream,
       ((stream->tx_offset)?(_make_varlen_int (NULL, stream->tx_offset)):(0)) +
       _make_varlen_int (NULL, payload_len) > buf_out_len) {
     /* Not enough space to write a stream header */
-    ERROR ("Not enough space in packet to write even the stream header!\n");
+    NGHQ_LOG_ERROR (ctx, "Not enough space in packet to write even the stream "
+                    "header!\n");
     return NGHQ_TOO_MUCH_DATA;
   }
 
@@ -312,7 +315,7 @@ ssize_t _parse_stream_frame (nghq_session *ctx, uint8_t stream_type,
   fin = stream_type & 0x01;
 
   if (length > len - off) {
-    ERROR("QUIC packet incomplete or bad\n");
+    NGHQ_LOG_ERROR (ctx, "QUIC packet incomplete or bad\n");
     return NGHQ_TRANSPORT_FRAME_FORMAT;
   }
 
@@ -340,8 +343,8 @@ size_t _write_quic_header (nghq_session *ctx, uint8_t *buf, size_t len) {
 int _transport_recv_stream_data (nghq_session *session, int64_t stream_id,
                                  int fin, uint64_t stream_offset,
                                  const uint8_t *data, size_t datalen) {
-  DEBUG ("_transport_recv_stream_data(%p, %lu, %x, data(%lu))\n",
-         (void *) session, stream_id, fin, datalen);
+  NGHQ_LOG_TRACE (session, "_transport_recv_stream_data(%p, %lu, %x, data(%lu))"
+                  "\n", (void *) session, stream_id, fin, datalen);
   nghq_stream* stream = nghq_stream_id_map_find(session->transfers, stream_id);
   nghq_stream_type stype = stream_id % 4;
   size_t data_offset = 0;
@@ -349,15 +352,15 @@ int _transport_recv_stream_data (nghq_session *session, int64_t stream_id,
 
   if (stream == NULL) {
     /* New stream time! */
-    DEBUG("Seen start of new stream %lu\n", stream_id);
+    NGHQ_LOG_DEBUG (session, "Seen start of new stream %lu\n", stream_id);
     stream = nghq_stream_new(stream_id);
     if (stream == NULL) {
       return NGHQ_OUT_OF_MEMORY;
     }
     if (stream_id < session->next_stream_id[stype]) {
-      ERROR("New stream ID (%u) is less than the expected new stream ID (%u)",
-            stream_id,
-            ((session->next_stream_id[stype] * 4) + stype));
+      NGHQ_LOG_ERROR (session, "New stream ID (%u) is less than the expected "
+                      "new stream ID (%u)", stream_id,
+                      ((session->next_stream_id[stype] * 4) + stype));
       return NGHQ_TRANSPORT_BAD_STREAM_ID;
     } else {
       session->next_stream_id[stype] = (stream_id - stype) / 4;
@@ -381,15 +384,15 @@ int _transport_recv_stream_data (nghq_session *session, int64_t stream_id,
     nghq_stream* push_stream;
     uint64_t push_id = _get_varlen_int(data + data_offset, &data_offset, datalen);
     if (data_offset > datalen) {
-      ERROR("Not enough data for push ID in stream data for stream %lu\n",
-            stream_id);
+      NGHQ_LOG_ERROR (session, "Not enough data for push ID in stream data for "
+                      "stream %lu\n", stream_id);
       return NGHQ_ERROR;
     }
     push_stream = nghq_stream_id_map_find(session->promises, push_id);
     if (push_stream == NULL) {
-      ERROR("Received new server push stream %lu, but Push ID %lu has not "
-            "been previously promised, or has already been started!\n",
-            stream_id, push_id);
+      NGHQ_LOG_WARN (session, "Received new server push stream %lu, but Push "
+                     "ID %lu has not been previously promised, or has already "
+                     "been started!\n", stream_id, push_id);
       return NGHQ_HTTP_BAD_PUSH;
     }
 
@@ -400,13 +403,13 @@ int _transport_recv_stream_data (nghq_session *session, int64_t stream_id,
     nghq_stream_id_map_remove(session->promises, push_id);
     nghq_stream_ended(session, push_stream);
 
-    DEBUG("Server push stream %lu starts push promise %lu\n",
-          stream_id, push_id);
+    NGHQ_LOG_DEBUG (session, "Server push stream %lu starts push promise %lu\n",
+                    stream_id, push_id);
   }
 
   if (stream->stream_id != stream_id) {
-    ERROR ("Stream IDs do not match! (%ld != %ld)\n", stream->stream_id,
-           stream_id);
+    NGHQ_LOG_ERROR (session, "Stream IDs do not match! (%ld != %ld)\n",
+                    stream->stream_id, stream_id);
     return NGHQ_INTERNAL_ERROR;
   }
 
@@ -430,13 +433,14 @@ ssize_t _parse_reset_stream_frame (nghq_session *ctx, uint8_t *buf, size_t len){
   app_error_code = _get_varlen_int (buf, &off, len);
   final_size = _get_varlen_int (buf, &off, len);
 
-  DEBUG ("Received RESET_STREAM for stream ID %lu, error code %lu and final "
-         "size of %lu\n", stream_id, app_error_code, final_size);
+  NGHQ_LOG_DEBUG (ctx, "Received RESET_STREAM for stream ID %lu, error code %lu"
+                  " and final size of %lu\n", stream_id, app_error_code,
+                  final_size);
 
   stream = nghq_stream_id_map_find (ctx->transfers, stream_id);
   if (stream == NULL) {
-    ERROR ("Received reset stream for %lu, but couldn't find it in the map\n",
-           stream_id);
+    NGHQ_LOG_ERROR (ctx, "Received reset stream for %lu, but couldn't find it "
+                    "in the map\n", stream_id);
     return NGHQ_REQUEST_CLOSED;
   }
   nghq_stream_ended (ctx, stream);
