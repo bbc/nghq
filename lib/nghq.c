@@ -1944,13 +1944,13 @@ struct alpn_name {
 };
 END_PACKED_STRUCT(alpn_name)
 
-static const struct alpn_name * const _draft22_alpns[] = {
-        (const struct alpn_name *const)"\x06hqm-05",
+static const struct alpn_name * const _draft29_alpns[] = {
+        (const struct alpn_name *const)"\x06h3m-07",
         NULL};
 
 static const struct alpn_name * const *_get_alpn_protocols()
 {
-    return _draft22_alpns;
+    return _draft29_alpns;
 }
 
 ssize_t nghq_select_alpn (nghq_session *session, const uint8_t *buf,
