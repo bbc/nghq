@@ -1842,7 +1842,6 @@ int nghq_stream_close (nghq_session* session, nghq_stream *stream,
       break;
     case QUIC_ERR_MALFORMED_DATA_FRAME:
     case QUIC_ERR_MALFORMED_HEADERS_FRAME:
-    case QUIC_ERR_MALFORMED_PRIORITY_FRAME:
     case QUIC_ERR_MALFORMED_CANCEL_PUSH_FRAME:
     case QUIC_ERR_MALFORMED_SETTINGS_FRAME:
     case QUIC_ERR_MALFORMED_PUSH_PROMISE_FRAME:

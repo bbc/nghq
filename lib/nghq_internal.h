@@ -93,7 +93,6 @@ typedef struct {
   uint64_t      tx_offset;  /*Offset where all data before is acked by remote peer*/
   size_t        data_frames_total; /* total size of BODY data seen so far */
   void *        user_data;
-  uint8_t       priority;
   nghq_stream_state recv_state;
   nghq_stream_state send_state;
   nghq_error    status;
@@ -290,7 +289,6 @@ void nghq_update_timeout (nghq_session *session);
 #define QUIC_ERR_MALFORMED_FRAME(x) (x & 0100)
 #define QUIC_ERR_MALFORMED_DATA_FRAME UINT16_C(0x0100)
 #define QUIC_ERR_MALFORMED_HEADERS_FRAME UINT16_C(0x0101)
-#define QUIC_ERR_MALFORMED_PRIORITY_FRAME UINT16_C(0x0102)
 #define QUIC_ERR_MALFORMED_CANCEL_PUSH_FRAME UINT16_C(0x0103)
 #define QUIC_ERR_MALFORMED_SETTINGS_FRAME UINT16_C(0x0104)
 #define QUIC_ERR_MALFORMED_PUSH_PROMISE_FRAME UINT16_C(0x0105)

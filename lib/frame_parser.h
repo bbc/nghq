@@ -107,7 +107,7 @@ ssize_t parse_headers_frame (nghq_session *session,
  * the buffer after this frame has been parsed.
  *
  * @param session The NGHQ session for debug logging context
- * @param buf The IO buffer to look for the PRIORITY frame in
+ * @param buf The IO buffer to look for the CANCEL_PUSH frame in
  * @param push_id The cancelled push ID
  *
  * @return NGHQ_OK, unless no CANCEL_PUSH frame was found at @p buf, then

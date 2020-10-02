@@ -63,7 +63,7 @@ ssize_t parse_frame_header (nghq_io_buf* buf, nghq_frame_type *type) {
   *type = _get_varlen_int(buf->send_pos, &header_offset, 16);
   frame_length = _get_varlen_int(buf->send_pos + header_offset, &header_offset, 16);
 
-  if (*type < NGHQ_FRAME_TYPE_DATA || *type > NGHQ_FRAME_TYPE_DUPLICATE_PUSH) {
+  if (*type < NGHQ_FRAME_TYPE_DATA || *type > NGHQ_FRAME_TYPE_MAX_PUSH_ID) {
     return NGHQ_ERROR;
   }
 
