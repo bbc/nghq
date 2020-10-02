@@ -52,6 +52,7 @@ typedef struct nghq_hdr_compression_ctx nghq_hdr_compression_ctx;
  * maximum frame size, whichever is smaller. The resulting frame will be passed
  * back in @p frame, and the caller is responsible for freeing (transfer: full).
  *
+ * @param session The NGHQ session for debug logging context
  * @param block The buffer containing the data block to package
  * @param block_len The length of @p block
  * @param full_len What value to put in the DATA frame header, if you're
@@ -85,6 +86,7 @@ ssize_t create_data_frame(nghq_session *session, const uint8_t* block,
  * header will return NGHQ_HDR_COMPRESS_FAILURE and no change in the header
  * compression context will have occured.
  *
+ * @param session The NGHQ session for debug logging context
  * @param ctx The header compression context
  * @param push_id -1 if no push stream header needed, otherwise the push ID
  * @param hdrs An array of name-value pair headers to be compressed
@@ -108,13 +110,14 @@ ssize_t create_headers_frame(nghq_session *session,
  *
  * The caller is responsible for freeing the allocated frame memory in @p frame.
  *
+ * @param session The NGHQ session for debug logging context
  * @param push_id The Push ID that's being cancelled
  * @param frame The buffer to return the packaged frame in
  * @param frame_len The length of @p frame
  *
  * @return NGHQ_OK on success
- * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
- *    allocated
+ * @return NGHQ_OUT_OF_MEMORY if memory for the new CANCEL_PUSH frame couldn't
+ *    be allocated
  */
 int create_cancel_push_frame(nghq_session *session, uint64_t push_id,
                              uint8_t** frame, size_t* frame_len);
@@ -127,12 +130,13 @@ int create_cancel_push_frame(nghq_session *session, uint64_t push_id,
  *
  * The caller is responsible for freeing the allocated frame memory in @p frame.
  *
+ * @param session The NGHQ session for debug logging context
  * @param settings The settings frame to serialise into the frame
  * @param frame The buffer to return the packaged frame in
  * @param frame_len The length of @p frame
  *
  * @return NGHQ_OK on success
- * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
+ * @return NGHQ_OUT_OF_MEMORY if memory for the new SETTINGS frame couldn't be
  *    allocated
  */
 int create_settings_frame(nghq_session * session, nghq_settings* settings,
@@ -148,6 +152,7 @@ int create_settings_frame(nghq_session * session, nghq_settings* settings,
  * This function guarantees that the order of headers in the array @p hdrs will
  * be maintained.
  *
+ * @param session The NGHQ session for debug logging context
  * @param ctx The header compression context to compress the headers
  * @param push_id The Push ID to promise
  * @param hdrs An array of name-value pair request headers
@@ -157,8 +162,8 @@ int create_settings_frame(nghq_session * session, nghq_settings* settings,
  *
  * @return The number of headers that were successfully compressed
  * @return NGHQ_ERROR if @p hdrs is NULL
- * @return NGHQ_OUT_OF_MEMORY if memory for the new HEADERS frame couldn't be
- *    allocated
+ * @return NGHQ_OUT_OF_MEMORY if memory for the new PUSH_PROMISE frame couldn't
+ *    be allocated
  * @return NGHQ_HDR_COMPRESS_FAILURE if the headers couldn't be compressed.
  */
 ssize_t create_push_promise_frame(nghq_session * session,
@@ -170,12 +175,13 @@ ssize_t create_push_promise_frame(nghq_session * session,
 /**
  * @brief Package a new HTTP/QUIC GOAWAY frame
  *
+ * @param session The NGHQ session for debug logging context
  * @param last_stream_id The last Stream ID that we promise to process
  * @param frame The buffer to return the packaged frame in
  * @param frame_len The length of @p frame
  *
  * @return NGHQ_OK on success
- * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
+ * @return NGHQ_OUT_OF_MEMORY if memory for the new GOAWAY frame couldn't be
  *    allocated
  */
 int create_goaway_frame(nghq_session *session, uint64_t last_stream_id,
@@ -184,13 +190,14 @@ int create_goaway_frame(nghq_session *session, uint64_t last_stream_id,
 /**
  * @brief Package a new HTTP/QUIC MAX_PUSH_ID frame
  *
+ * @param session The NGHQ session for debug logging context
  * @param max_push_id The maximum value for a Push ID that the server can use
  * @param frame The buffer to return the packaged frame in
  * @param frame_len The length of @p frame
  *
  * @return NGHQ_OK on success
- * @return NGHQ_OUT_OF_MEMORY if memory for the new PRIORITY frame couldn't be
- *    allocated
+ * @return NGHQ_OUT_OF_MEMORY if memory for the new MAX_PUSH_ID frame couldn't
+ *    be allocated
  */
 int create_max_push_id_frame(nghq_session *session, uint64_t max_push_id,
                              uint8_t** frame, size_t* frame_len);

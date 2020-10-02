@@ -60,6 +60,7 @@ ssize_t parse_frame_header (nghq_io_buf* buf, nghq_frame_type *type);
  * This function will update @p buf send_pos and remaining values to reflect
  * the buffer after this frame has been parsed.
  *
+ * @param session The NGHQ session for debug logging context
  * @param buf The IO buffer to look for the DATA frame in
  * @param data The output buffer for the data block within the frame
  * @param data_len The length of data in @p data
@@ -82,6 +83,7 @@ ssize_t parse_data_frame (nghq_session *session, nghq_io_buf* buf,
  * This function will update @p buf send_pos and remaining values to reflect
  * the buffer after this frame has been parsed.
  *
+ * @param session The NGHQ session for debug logging context
  * @param ctx The header compression context to decompress the headers
  * @param buf The IO buffer to look for the HEADERS frame in
  * @param hdrs An array of name-value pairs of headers to be passed back
@@ -104,6 +106,7 @@ ssize_t parse_headers_frame (nghq_session *session,
  * This function will update @p buf send_pos and remaining values to reflect
  * the buffer after this frame has been parsed.
  *
+ * @param session The NGHQ session for debug logging context
  * @param buf The IO buffer to look for the PRIORITY frame in
  * @param push_id The cancelled push ID
  *
@@ -122,6 +125,7 @@ int parse_cancel_push_frame (nghq_session *session, nghq_io_buf* buf,
  * This function will update @p buf send_pos and remaining values to reflect
  * the buffer after this frame has been parsed.
  *
+ * @param session The NGHQ session for debug logging context
  * @param buf The IO buffer to look for the SETTINGS frame in
  * @param settings An nghq_settings structure
  *
@@ -142,6 +146,7 @@ int parse_settings_frame (nghq_session *session, nghq_io_buf* buf,
  * This function will update @p buf send_pos and remaining values to reflect
  * the buffer after this frame has been parsed.
  *
+ * @param session The NGHQ session for debug logging context
  * @param ctx The header compression context to decompress the headers
  * @param buf The IO buffer to look for the PUSH_PROMISE frame in
  * @param push_id The promised Push ID
@@ -164,6 +169,7 @@ ssize_t parse_push_promise_frame (nghq_session *session,
  * This function will update @p buf send_pos and remaining values to reflect
  * the buffer after this frame has been parsed.
  *
+ * @param session The NGHQ session for debug logging context
  * @param buf The IO buffer to look for the GOAWAY frame in
  * @param last_stream_id The last Stream ID that will finish processing
  *
