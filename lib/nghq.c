@@ -209,11 +209,9 @@ nghq_session * nghq_session_client_new (const nghq_callbacks *callbacks,
                                         void *session_user_data) {
   nghq_session *session = _nghq_session_new_common (callbacks, settings, transport,
                                                session_user_data);
-  if (!session) return NULL;
+  if (session == NULL) return NULL;
 
-  if (session != NULL) {
-    session->role = NGHQ_ROLE_CLIENT;
-  }
+  session->role = NGHQ_ROLE_CLIENT;
 
   if (_nghq_start_session(session, transport) != NGHQ_OK) {
     goto nghq_client_fail_session;
@@ -236,9 +234,12 @@ nghq_session * nghq_session_server_new (const nghq_callbacks *callbacks,
   nghq_session *session = _nghq_session_new_common (callbacks, settings,
                                                     transport,
                                                     session_user_data);
-  if (session != NULL) {
-    session->role = NGHQ_ROLE_SERVER;
+
+  if (session == NULL) {
+    return NULL;
   }
+
+  session->role = NGHQ_ROLE_SERVER;
 
   if (_nghq_start_session(session, transport) != NGHQ_OK) {
     goto nghq_srv_fail_session;
@@ -335,7 +336,6 @@ int nghq_session_recv (nghq_session *session) {
 
     buf = (uint8_t *) malloc (BUFFER_READ_SIZE);
     if (buf == NULL) {
-      recv = 0;
       rv = NGHQ_OUT_OF_MEMORY;
       break;
     }
@@ -819,7 +819,7 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
   nghq_io_buf* frame;
   uint64_t stream_id;
   nghq_stream* stream;
-  ssize_t rv;
+  ssize_t rv = NGHQ_OK;
 
   if (session == NULL) {
     return NGHQ_ERROR;
@@ -856,6 +856,7 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
       }
       frame->buf = malloc (chunk_len);
       if (frame->buf == NULL) {
+        free (frame);
         return NGHQ_OUT_OF_MEMORY;
       }
 
@@ -1362,12 +1363,18 @@ static int _nghq_stream_frame_add (nghq_session *session, nghq_stream* stream,
   f->frame_type = frame_type;
   if (frame_type != NGHQ_FRAME_TYPE_DATA) {
     buf = (uint8_t*) malloc (frame_size);
-    if (!buf) return NGHQ_OUT_OF_MEMORY;
+    if (!buf) {
+      free (f);
+      return NGHQ_OUT_OF_MEMORY;
+    }
   } else {
     uint8_t *bodydata = NULL;
     size_t datalen = 0;
     ssize_t to_process = parse_data_frame (session, data, &bodydata, &datalen);
-    if (to_process < 0) return to_process;
+    if (to_process < 0) {
+      free (f);
+      return to_process;
+    }
     size_t hdr_len = frame_size - datalen;
     f->end_header_offset = offset + hdr_len;
     f->data_offset_adjust = f->end_header_offset - stream->data_frames_total;
@@ -1729,6 +1736,10 @@ int nghq_write_send_buffer (nghq_session* session) {
 int nghq_stream_cancel (nghq_session* session, nghq_stream *stream,
                         nghq_error error) {
   uint16_t app_error_code = QUIC_ERR_HTTP_NO_ERROR;
+  if ((session == NULL) || (stream == NULL)) {
+    return NGHQ_ERROR;
+  }
+
   switch (error) {
     case NGHQ_ERROR:
     case NGHQ_INTERNAL_ERROR:
@@ -2143,6 +2154,7 @@ static int _check_timeout (nghq_session *session, nghq_ts *ts) {
     if (!to_comp) return NGHQ_OUT_OF_MEMORY;
     if (gettimeofday(to_comp, NULL)) {
       NGHQ_LOG_ERROR (session, "gettimeofday() failed: %s\n", strerror(errno));
+      free (to_comp);
       return NGHQ_INTERNAL_ERROR;
     }
   }

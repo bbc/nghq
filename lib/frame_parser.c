@@ -225,7 +225,7 @@ int parse_settings_frame (nghq_session *session, nghq_io_buf* buf,
     return frame_length;
   }
 
-  if (settings == NULL) {
+  if (*settings == NULL) {
     *settings = malloc(sizeof(nghq_settings));
     if (*settings == NULL) {
       return NGHQ_OUT_OF_MEMORY;

@@ -394,6 +394,11 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
                      g_request_hdrs,
                      sizeof(g_request_hdrs)/sizeof(g_request_hdrs[0]),
                      (void*)promise_request_user_data);
+    if (result != NGHQ_OK) {
+      fprintf (stderr, "Failed to submit new push promise for %s: %s\n",
+               path_str, nghq_strerror(result));
+      return;
+    }
 
     ev_idle_start(EV_DEFAULT_UC_ &g_server_session.send_idle);
     ev_run(EV_DEFAULT_UC_ 0);
@@ -407,6 +412,11 @@ static void _send_file(const char *filename, size_t filename_skip_chars,
     }
     result = nghq_feed_headers (g_server_session.session, g_response_hdrs,
                      num_resp_hdrs, 0, (void*)promise_request_user_data);
+    if (result != NGHQ_OK) {
+      fprintf (stderr, "Failed to feed headers for server push %s: %s\n",
+               path_str, nghq_strerror(result));
+      return;
+    }
 
     free(path_str);
 #if HAVE_OPENSSL

@@ -87,7 +87,7 @@ void put_int64_in_buf (uint8_t* buf, int64_t n) {
 }
 
 uint64_t get_packet_number (uint8_t first_byte, const uint8_t *buf) {
-  uint64_t pkt_num;
+  uint64_t pkt_num = 0;
   switch (first_byte & 0x03) {
     case 0:
       pkt_num = (uint64_t) buf[0];
@@ -96,7 +96,6 @@ uint64_t get_packet_number (uint8_t first_byte, const uint8_t *buf) {
       pkt_num = (uint64_t) get_uint16_from_buf (buf);
       break;
     case 2:
-      pkt_num = 0;
       pkt_num = buf[0] << 16;
       pkt_num = pkt_num | (uint64_t) get_uint16_from_buf (buf + 1);
       break;

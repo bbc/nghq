@@ -321,9 +321,10 @@ static int on_request_close_cb  (nghq_session *session, nghq_error status,
 
         free(it->req);
         free(it);
+      } else {
+        prev = it;
+        it = it->next;
       }
-      prev = it;
-      it = it->next;
     }
     printf("Request finished\n");
     return NGHQ_OK;
