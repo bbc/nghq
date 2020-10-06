@@ -106,8 +106,8 @@ ssize_t create_data_frame(nghq_session *session, const uint8_t* block,
   _create_frame(NGHQ_FRAME_TYPE_DATA, full_len, block, block_to_write, *frame,
                 *frame_len);
 
-  NGHQ_LOG_DEBUG (session, "Created DATA frame of size %lu bytes with %lu\n",
-                  full_len, block_to_write);
+  NGHQ_LOG_DEBUG (session, "Created DATA frame of size %lu bytes with %lu bytes"
+                  " to send immediately\n", full_len, block_to_write);
 
   return (ssize_t) block_to_write;
 }

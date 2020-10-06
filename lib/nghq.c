@@ -429,8 +429,8 @@ int nghq_session_send (nghq_session *session) {
         break;
       }
 
-      NGHQ_LOG_DEBUG (session, "Got data to send for stream %lu\n",
-                      it->stream_id);
+      NGHQ_LOG_DEBUG (session, "Got %lu bytes of data to send for stream %lu\n",
+                      it->send_buf->remaining, it->stream_id);
 
       size_t written = 0;
       ssize_t off = quic_transport_write_stream (session, it,
