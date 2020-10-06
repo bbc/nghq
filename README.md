@@ -31,9 +31,9 @@ client/server application and **nghq** can be found
 
 ## Caveats
 
-**NOTE: In its current form, nghq implements only the parts of the QUIC and HTTP3 specifications required by [draft-pardue-quic-http-mcast-05](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-05)**.
+**NOTE: In its current form, nghq implements only the parts of the QUIC and HTTP3 specifications required by [draft-pardue-quic-http-mcast-07](https://tools.ietf.org/html/draft-pardue-quic-http-mcast-07)**.
 
-In particular, it only supports [draft-ietf-quic-http-22](https://tools.ietf.org/html/draft-ietf-quic-http-22).
+In particular, it only supports a profile of the [draft-ietf-quic-transport-29](https://tools.ietf.org/html/draft-ietf-quic-transport-29), and [draft-ietf-quic-http-29](https://tools.ietf.org/html/draft-ietf-quic-http-29).
 
 ## Getting Started
 
