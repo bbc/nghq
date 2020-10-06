@@ -848,10 +848,21 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
       rv = create_data_frame (session, buf, len,
                               stream->long_data_frame_remaining, &frame->buf,
                               &frame->buf_len);
-      stream->flags &= !STREAM_FLAG_LONG_DATA_FRAME_REQ;
+      stream->flags &= ~STREAM_FLAG_LONG_DATA_FRAME_REQ;
+      stream->long_data_frame_remaining -= len;
     } else {
+      /*
+       * TODO: Is there some way that we could better optimise this so we can
+       * flag to the sender that it is to expect more data, so it doesn't send
+       * out short packets when the body data chunks being fed in are not easily
+       * divisible by the size of each stream frame payload?
+       */
       size_t chunk_len = len;
       if (chunk_len > stream->long_data_frame_remaining) {
+        NGHQ_LOG_WARN (session, "Given %lu bytes of payload data for stream ID "
+                       "%lu with only %lu bytes remaining from previously "
+                       "promised length!\n", stream_id, len,
+                       stream->long_data_frame_remaining);
         chunk_len = stream->long_data_frame_remaining;
       }
       frame->buf = malloc (chunk_len);
@@ -861,7 +872,13 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
       }
 
       memcpy (frame->buf, buf, chunk_len);
+      rv = frame->buf_len = chunk_len;
       stream->long_data_frame_remaining -= chunk_len;
+
+      NGHQ_LOG_DEBUG (session, "%lu bytes remaining for stream ID from "
+                      "previously promised%s length\n",
+                      stream->long_data_frame_remaining,
+                      (STREAM_LONG_DATA_FRAME_FIN(stream->flags))?(" final"):(""));
 
       if ((stream->long_data_frame_remaining == 0)
           && STREAM_LONG_DATA_FRAME_FIN(stream->flags)) {
