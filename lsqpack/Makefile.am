@@ -14,7 +14,7 @@ all:	lsqpack-build
 dist-hook:
 	cp -r $(top_srcdir)/ls-qpack $(top_distdir)/ls-qpack
 
-install-exec-local:
+install-exec-local: all
 	[ -d "$(DESTDIR)$(libdir)" ] || mkdir -p "$(DESTDIR)$(libdir)"
 	cp ls-qpack-build/libls-qpack.so* "$(DESTDIR)$(libdir)"/
 
