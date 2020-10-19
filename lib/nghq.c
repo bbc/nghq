@@ -850,6 +850,10 @@ ssize_t nghq_feed_payload_data(nghq_session *session, const uint8_t *buf,
                               &frame->buf_len);
       stream->flags &= ~STREAM_FLAG_LONG_DATA_FRAME_REQ;
       stream->long_data_frame_remaining -= len;
+      if ((stream->long_data_frame_remaining == 0)
+          && STREAM_LONG_DATA_FRAME_FIN(stream->flags)) {
+        frame->complete = 1;
+      }
     } else {
       /*
        * TODO: Is there some way that we could better optimise this so we can
