@@ -203,9 +203,6 @@ struct nghq_session {
   uint64_t        tx_pkt_num;
   uint64_t        rx_pkt_num;
 
-  uint8_t         remote_pktnum;
-  uint64_t        last_remote_pkt_num;
-
   /* Application-specific stuff */
   nghq_callbacks  callbacks;
   nghq_settings   settings;

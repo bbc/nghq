@@ -157,8 +157,6 @@ static nghq_session * _nghq_session_new_common(const nghq_callbacks *callbacks,
 
   session->tx_pkt_num = 0;
   session->rx_pkt_num = 0;
-  session->remote_pktnum = 2;
-  session->last_remote_pkt_num = 0;
   session->session_timeout_timer = NULL;
   session->session_timed_out = 0;
 
