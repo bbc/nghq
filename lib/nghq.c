@@ -2229,7 +2229,9 @@ uint32_t nghq_get_packet_number (nghq_session *session, const uint8_t *buf,
   if (num_bytes != NULL) {
     *num_bytes = (buf[0] & 0x03) + 1;
   }
-  return (uint32_t) get_packet_number(buf[0], buf + session->session_id_len + 1);
+  /* Don't supply the base so as to not affect the API result... */
+  return (uint32_t) get_packet_number(buf[0], buf + session->session_id_len + 1,
+                                      0);
 }
 
 int nghq_set_loglevel (nghq_session *session, nghq_log_level max,

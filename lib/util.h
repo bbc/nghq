@@ -42,6 +42,9 @@ int16_t get_int16_from_buf (const uint8_t* buf);
 void put_uint16_in_buf (uint8_t* buf, uint16_t n);
 void put_int16_in_buf (uint8_t* buf, int16_t n);
 
+uint32_t get_uint24_from_buf (const uint8_t* buf);
+void put_uint24_in_buf (uint8_t* buf, uint32_t n);
+
 uint32_t get_uint32_from_buf (const uint8_t* buf);
 int32_t get_int32_from_buf (const uint8_t* buf);
 
@@ -54,7 +57,8 @@ int64_t get_int64_from_buf (const uint8_t* buf);
 void put_uint64_in_buf (uint8_t* buf, uint64_t n);
 void put_int64_in_buf (uint8_t* buf, int64_t n);
 
-uint64_t get_packet_number (uint8_t first_byte, const uint8_t *buf);
+uint64_t get_packet_number (uint8_t first_byte, const uint8_t *buf,
+                            uint64_t base);
 size_t put_packet_number (uint64_t pkt_num, size_t len, uint8_t *buf,
                           size_t buf_len);
 

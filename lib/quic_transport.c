@@ -76,11 +76,22 @@ ssize_t quic_transport_packet_parse (nghq_session *ctx, uint8_t *buf,
   for (i = 0; i < pkt_num_len; ++i) {
     buf[off + i] = buf[off + i] ^ hp_mask[i + 1];
   }
-  /* TODO: Figure out where in the sequence this packet number should live */
-  pkt_num = get_packet_number (buf[0], buf + off);
+
+  pkt_num = get_packet_number (buf[0], buf + off, ctx->rx_pkt_num);
   off += pkt_num_len;
 
   NGHQ_LOG_DEBUG (ctx, "Received packet with packet number %lu\n", pkt_num);
+
+  if (pkt_num > ctx->rx_pkt_num) {
+    if (pkt_num > ctx->rx_pkt_num + 1) {
+      NGHQ_LOG_DEBUG (ctx, "Packet number discontinuity: expected %lu, got %lu\n",
+                      ctx->rx_pkt_num + 1, pkt_num);
+    }
+    ctx->rx_pkt_num = pkt_num;
+  } else {
+    NGHQ_LOG_DEBUG (ctx, "Received out-of-order packet: %lu, largest %lu\n",
+                    pkt_num, ctx->rx_pkt_num);
+  }
 
   /* Remove packet encryption */
   rv = (ssize_t) ctx->callbacks.decrypt_callback (ctx, buf + off, len - off,
@@ -159,7 +170,8 @@ ssize_t quic_transport_write_quic_header (nghq_session *ctx, uint8_t *buf,
 
 void quic_transport_abandon_packet (nghq_session *ctx, uint8_t *buf,
                                     size_t len, uint64_t pktnum) {
-  uint64_t hdr_pkt_num = get_packet_number (buf[0], buf + ctx->session_id_len + 1);
+  uint64_t hdr_pkt_num = get_packet_number (buf[0],
+                                            buf + ctx->session_id_len + 1, 0);
   // TODO: Check all the packet number available
   if ((pktnum & 0x00000000000000FF) != (hdr_pkt_num & 0x00000000000000FF)) {
     NGHQ_LOG_WARN (ctx, "Packet number supplied does not match that in the "

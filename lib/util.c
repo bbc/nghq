@@ -48,6 +48,17 @@ void put_int16_in_buf (uint8_t* buf, int16_t n) {
   put_uint16_in_buf (buf, (uint16_t) n);
 }
 
+uint32_t get_uint24_from_buf (const uint8_t* buf) {
+  uint32_t rv = 0;
+  memcpy (((uint8_t *) &rv) + 1, buf, 3);
+  return ntohl(rv);
+}
+
+void put_uint24_in_buf (uint8_t* buf, uint32_t n) {
+  n = htonl(n);
+  memcpy (buf, ((uint8_t *) &n) + 1, 3);
+}
+
 uint32_t get_uint32_from_buf (const uint8_t* buf) {
   uint32_t rv;
   memcpy (&rv, buf, 4);
@@ -86,7 +97,24 @@ void put_int64_in_buf (uint8_t* buf, int64_t n) {
   put_uint64_in_buf( buf, (uint64_t)n);
 }
 
-uint64_t get_packet_number (uint8_t first_byte, const uint8_t *buf) {
+#define PKTNUM_1BYTE_BASE_MASK(x) (x & 0xFFFFFFFFFFFFFF00)
+#define PKTNUM_1BYTE_UPPER_QUARTILE(x) ((uint8_t) x) >= 192
+#define PKTNUM_1BYTE_LOWER_QUARTILE(x) ((uint8_t) x) < 64
+
+#define PKTNUM_2BYTE_BASE_MASK(x) (x & 0xFFFFFFFFFFFF0000)
+#define PKTNUM_2BYTE_UPPER_QUARTILE(x) ((uint16_t) x) >= 49152
+#define PKTNUM_2BYTE_LOWER_QUARTILE(x) ((uint16_t) x) < 16384
+
+#define PKTNUM_3BYTE_BASE_MASK(x) (x & 0xFFFFFFFFFF000000)
+#define PKTNUM_3BYTE_UPPER_QUARTILE(x) (x & 0xFFFFFF) >= 12582912
+#define PKTNUM_3BYTE_LOWER_QUARTILE(x) (x & 0xFFFFFF) < 4194304
+
+#define PKTNUM_4BYTE_BASE_MASK(x) (x & 0xFFFFFFFF00000000)
+#define PKTNUM_4BYTE_UPPER_QUARTILE(x) ((uint32_t) x) >= 3221225472
+#define PKTNUM_4BYTE_LOWER_QUARTILE(x) ((uint32_t) x) < 1073741824
+
+uint64_t get_packet_number (uint8_t first_byte, const uint8_t *buf,
+                            uint64_t base) {
   uint64_t pkt_num = 0;
   switch (first_byte & 0x03) {
     case 0:
@@ -96,12 +124,74 @@ uint64_t get_packet_number (uint8_t first_byte, const uint8_t *buf) {
       pkt_num = (uint64_t) get_uint16_from_buf (buf);
       break;
     case 2:
-      pkt_num = buf[0] << 16;
-      pkt_num = pkt_num | (uint64_t) get_uint16_from_buf (buf + 1);
+      pkt_num = (uint64_t) get_uint24_from_buf (buf);
       break;
     case 3:
       pkt_num = (uint64_t) get_uint32_from_buf (buf);
   }
+
+  /* If base is zero, this is either the first packet, or we don't want to
+   * calculate the full number. We also don't want to do anything on the very
+   * lowest quartile as this could get messy with wraps back to the top of the
+   * number space!
+   */
+  if (base > 64) {
+    switch (first_byte & 0x03) {
+      case 0:
+        if (PKTNUM_1BYTE_UPPER_QUARTILE(base) &&
+            PKTNUM_1BYTE_LOWER_QUARTILE(pkt_num)) {
+          /* Probably a wrapping packet number */
+          pkt_num |= PKTNUM_1BYTE_BASE_MASK((base + 0x100));
+        } else if (PKTNUM_1BYTE_LOWER_QUARTILE(base) &&
+                   PKTNUM_1BYTE_UPPER_QUARTILE(pkt_num)) {
+          /* Probably an out-of-order packet */
+          pkt_num |= PKTNUM_1BYTE_BASE_MASK((base - 0x100));
+        } else {
+          pkt_num |= PKTNUM_1BYTE_BASE_MASK(base);
+        }
+        break;
+      case 1:
+        if (PKTNUM_2BYTE_UPPER_QUARTILE(base) &&
+            PKTNUM_2BYTE_LOWER_QUARTILE(pkt_num)) {
+          /* Probably a wrapping packet number */
+          pkt_num |= PKTNUM_2BYTE_BASE_MASK((base + 0x10000));
+        } else if (PKTNUM_2BYTE_LOWER_QUARTILE(base) &&
+                   PKTNUM_2BYTE_UPPER_QUARTILE(pkt_num)) {
+          /* Probably an out-of-order packet */
+          pkt_num |= PKTNUM_2BYTE_BASE_MASK((base - 0x10000));
+        } else {
+          pkt_num |= PKTNUM_2BYTE_BASE_MASK(base);
+        }
+        break;
+      case 2:
+        if (PKTNUM_3BYTE_UPPER_QUARTILE(base) &&
+            PKTNUM_3BYTE_LOWER_QUARTILE(pkt_num)) {
+          /* Probably a wrapping packet number */
+          pkt_num |= PKTNUM_3BYTE_BASE_MASK((base + 0x1000000));
+        } else if (PKTNUM_3BYTE_LOWER_QUARTILE(base) &&
+                   PKTNUM_3BYTE_UPPER_QUARTILE(pkt_num)) {
+          /* Probably an out-of-order packet */
+          pkt_num |= PKTNUM_3BYTE_BASE_MASK((base - 0x1000000));
+        } else {
+          pkt_num |= PKTNUM_3BYTE_BASE_MASK(base);
+        }
+        break;
+      case 3:
+        if (PKTNUM_4BYTE_UPPER_QUARTILE(base) &&
+            PKTNUM_4BYTE_LOWER_QUARTILE(pkt_num)) {
+          /* Probably a wrapping packet number */
+          pkt_num |= PKTNUM_4BYTE_BASE_MASK((base + 0x100000000));
+        } else if (PKTNUM_4BYTE_LOWER_QUARTILE(base) &&
+                   PKTNUM_4BYTE_UPPER_QUARTILE(pkt_num)) {
+          /* Probably an out-of-order packet */
+          pkt_num |= PKTNUM_4BYTE_BASE_MASK((base - 0x100000000));
+        } else {
+          pkt_num |= PKTNUM_4BYTE_BASE_MASK(base);
+        }
+        break;
+    }
+  }
+
   return pkt_num;
 }
 
@@ -113,11 +203,11 @@ size_t put_packet_number (uint64_t pkt_num, size_t len,
     case 1:
       buf[0] = (uint8_t) wire_pkt_num;
       break;
-    case 3:
-      buf[0] = (htonl((int) wire_pkt_num) >> 16);
-      // @suppress("No break at end of case")
     case 2:
       put_uint16_in_buf (buf, (uint16_t) wire_pkt_num);
+      break;
+    case 3:
+      put_uint24_in_buf (buf, (uint32_t) wire_pkt_num);
       break;
     case 4:
       put_uint32_in_buf (buf, wire_pkt_num);
