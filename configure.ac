@@ -23,7 +23,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 
-AC_INIT([libnghq], [0.7.1], [samuelh@rd.bbc.co.uk])
+AC_INIT([libnghq], [0.7.2], [samuelh@rd.bbc.co.uk])
 AM_INIT_AUTOMAKE
 AC_OUTPUT
 AC_CONFIG_HEADERS([config.h])
