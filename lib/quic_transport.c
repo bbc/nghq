@@ -338,16 +338,6 @@ ssize_t _parse_stream_frame (nghq_session *ctx, uint8_t stream_type,
   return length + off;
 }
 
-size_t _write_quic_header (nghq_session *ctx, uint8_t *buf, size_t len) {
-  size_t off = 0;
-  /* TODO: Make it possible for packet numbers to be > 1 byte */
-  buf[0] = 0x40; /* Short header, 1 byte packet number */
-  memcpy(buf + 1, ctx->session_id, ctx->session_id_len);
-  off = ctx->session_id_len + 1;
-  buf[off++] = (uint8_t) ctx->rx_pkt_num++;
-  return off;
-}
-
 /*
  * A copy from nghq_transport_recv_stream_data in tcp2_callbacks with a slightly
  * different interface, before the divorce from ngtcp2.
